@@ -1,0 +1,40 @@
+# Environment variables
+
+.env
+
+# Python
+
+**pycache**/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+
+venv/
+.venv/
+env/
+
+# Chroma vector database
+
+chroma_db/
+
+# Uploaded PDFs
+
+uploads/
+
+# Data folder (optional)
+
+data/
+
+# VS Code
+
+.vscode/
+
+# OS files
+
+.DS_Store
+Thumbs.db
