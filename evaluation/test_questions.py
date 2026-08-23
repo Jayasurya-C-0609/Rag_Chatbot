@@ -7,6 +7,7 @@ TEST_QUESTIONS = [
     {
         "question": "What is BERT?",
         "answerable": True,
+        "expected_files": ["bert_paper.pdf"],
         "reference_answer": (
             "BERT is a bidirectional Transformer encoder."
         )
@@ -20,6 +21,7 @@ TEST_QUESTIONS = [
     {
         "question": "What is masked language modeling?",
         "answerable": True,
+        "expected_files": ["bert_paper.pdf"],
         "reference_answer": (
             "Masked language modeling is a pre-training task "
             "in which selected tokens are masked and the model "
@@ -35,6 +37,7 @@ TEST_QUESTIONS = [
     {
         "question": "What is Artificial Intelligence?",
         "answerable": True,
+        "expected_files": ["ai_introduction.pdf"],
         "reference_answer": (
             "Artificial Intelligence is the field of building "
             "computational systems capable of performing tasks "
@@ -52,6 +55,7 @@ TEST_QUESTIONS = [
             "What are the eligibility requirements for AeroTHON 2026 team members and teams?"
         ),
         "answerable": True,
+        "expected_files": ["aerothon_2026.pdf"],
         "reference_answer": (
             "AeroTHON 2026 teams must consist of undergraduate "
             "or postgraduate students who are SAE India members. "
@@ -69,6 +73,7 @@ TEST_QUESTIONS = [
     {
         "question": "What are the phases of AeroTHON 2026?",
         "answerable": True,
+        "expected_files": ["aerothon_2026.pdf"],
         "reference_answer": (
             "AeroTHON 2026 consists of a design and development "
             "phase followed by a flying competition phase."
@@ -83,6 +88,7 @@ TEST_QUESTIONS = [
     {
         "question": "What is the duration of the internship?",
         "answerable": True,
+        "expected_files": ["internship_program.pdf"],
         "reference_answer": (
         "The internship duration is June 2026 to August 2026, "
         "and the program is an 8-week internship."
@@ -97,6 +103,7 @@ TEST_QUESTIONS = [
     {
         "question": "What is the internship structure?",
         "answerable": True,
+        "expected_files": ["internship_program.pdf"],
         "reference_answer": (
             "The internship follows a week-wise structured "
             "learning plan covering applications and use cases, "
@@ -114,6 +121,7 @@ TEST_QUESTIONS = [
     {
         "question": "How is the final internship grade determined?",
         "answerable": True,
+        "expected_files": ["internship_program.pdf"],
         "reference_answer": (
             "The final grade is based on overall performance, "
             "including weekly assessments, project submissions, "
@@ -129,6 +137,7 @@ TEST_QUESTIONS = [
     {
         "question": "Who invented Python?",
         "answerable": False,
+        "expected_files": [],
         "reference_answer": ""
     },
 
@@ -140,6 +149,7 @@ TEST_QUESTIONS = [
     {
         "question": "What is the current stock price of NVIDIA?",
         "answerable": False,
+        "expected_files": [],
         "reference_answer": ""
     }
 

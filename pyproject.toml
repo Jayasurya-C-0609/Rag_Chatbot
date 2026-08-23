@@ -5,24 +5,26 @@ description = "Document-grounded PDF question-answering assistant"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "chromadb",
     "instructor",
     "langchain",
-    "langchain-chroma",
-    "langchain-classic",
     "langchain-community",
+    "langchain-classic",
     "langchain-google-genai",
     "langchain-groq",
     "langchain-huggingface",
+    "langchain-mongodb",
     "langchain-ollama",
     "langchain-text-splitters",
+    "nest-asyncio",
     "numpy",
     "ollama",
     "openai",
     "pandas",
+    "pymongo",
     "pymupdf",
-    "pypdf",
+    "python-docx",
     "python-dotenv",
+    "rank-bm25",
     "ragas",
     "scikit-learn",
     "sentence-transformers",
@@ -30,6 +32,7 @@ dependencies = [
     "tiktoken",
     "torch",
     "transformers",
+    "torchvision",
 ]
 
 [tool.uv]

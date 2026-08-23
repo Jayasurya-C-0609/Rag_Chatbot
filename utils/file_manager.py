@@ -1,33 +1,40 @@
 import os
 
 from vectordb.delete_documents import delete_document
+from loaders.document_loader import SUPPORTED_EXTENSIONS
 
 UPLOAD_FOLDER = "uploads"
 
 
 def get_uploaded_pdfs():
-
+    """
+    Return a sorted list of all supported documents in the upload folder.
+    Despite the legacy name, this now returns all supported file types.
+    """
     if not os.path.exists(UPLOAD_FOLDER):
         return []
 
-    pdfs = [
+    files = [
         file
         for file in os.listdir(UPLOAD_FOLDER)
-        if file.endswith(".pdf")
+        if os.path.splitext(file)[1].lower() in SUPPORTED_EXTENSIONS
     ]
 
-    return sorted(pdfs)
+    return sorted(files)
 
 
 def delete_pdf(filename, embedding_model):
-
-    # Delete vectors from ChromaDB
+    """
+    Delete a document's vectors from MongoDB and remove it from disk.
+    Despite the legacy name, works for any supported file type.
+    """
+    # Delete vectors from MongoDB Atlas
     deleted_chunks = delete_document(
         filename,
         embedding_model
     )
 
-    # Delete PDF file
+    # Delete file from disk
     path = os.path.join(
         UPLOAD_FOLDER,
         filename

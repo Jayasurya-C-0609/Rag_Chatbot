@@ -1,7 +1,15 @@
+import asyncio
+import nest_asyncio
+
+# Patch the event loop to prevent 'Event loop is closed' RuntimeError
+# that occurs when Streamlit's script runner interacts with asyncio libs.
+nest_asyncio.apply()
+
 import os
 import shutil
 import streamlit as st
 
+from utils.startup import ensure_uploads_dir, validate_env
 from embeddings.embedding_model import load_embedding_model
 from retriever.hybrid_retriever import load_hybrid_retriever
 from llm.llm import load_llm
@@ -22,6 +30,7 @@ from utils.greetings import (
 from utils.source_utils import group_sources
 
 from retriever.reranker import CrossEncoderReranker
+from loaders.document_loader import SUPPORTED_EXTENSIONS
 
 
 # -------------------------------------------------------
@@ -33,6 +42,21 @@ st.set_page_config(
     page_icon="📚",
     layout="wide"
 )
+
+
+# -------------------------------------------------------
+# Startup: directory + env validation
+# -------------------------------------------------------
+
+ensure_uploads_dir()
+
+env_errors = validate_env()
+
+if env_errors:
+    st.error("### ⚠️ Configuration Error\n\nThe following required settings are missing:\n\n" +
+             "\n\n".join(f"- {e}" for e in env_errors))
+    st.info("Add the missing values to your `.env` file and restart the app.")
+    st.stop()
 
 
 # -------------------------------------------------------
@@ -56,7 +80,7 @@ if "messages" not in st.session_state:
 st.title("📚 RAG Chatbot")
 
 st.write(
-    "Ask questions from your PDF documents."
+    "Ask questions from your uploaded documents."
 )
 
 
@@ -67,13 +91,28 @@ st.write(
 @st.cache_resource
 def load_models():
 
-    embedding_model = load_embedding_model()
+    try:
+        embedding_model = load_embedding_model()
+    except Exception as e:
+        st.error(f"❌ Failed to load embedding model: {e}")
+        st.stop()
 
-    retriever = load_hybrid_retriever(
-        embedding_model
-    )
+    try:
+        retriever = load_hybrid_retriever(embedding_model)
+    except Exception as e:
+        st.error(
+            f"❌ Failed to connect to MongoDB Atlas or load retriever.\n\n"
+            f"**Error:** {e}\n\n"
+            "Check that your `MONGODB_ATLAS_URI` is correct and the "
+            "cluster is reachable."
+        )
+        st.stop()
 
-    llm = load_llm()
+    try:
+        llm = load_llm()
+    except Exception as e:
+        st.error(f"❌ Failed to load language model: {e}")
+        st.stop()
 
     reranker = CrossEncoderReranker()
 
@@ -97,12 +136,17 @@ def load_models():
 # Sidebar
 # -------------------------------------------------------
 
-st.sidebar.title("📂 PDF Management")
+st.sidebar.title("📂 Document Management")
 
+# Build accepted extension string for uploader
+_accepted_exts = sorted(
+    ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS
+)
 
 uploaded_file = st.sidebar.file_uploader(
-    "Upload a PDF",
-    type=["pdf"]
+    "Upload a document",
+    type=_accepted_exts,
+    help=f"Supported formats: {', '.join('.' + e for e in _accepted_exts)}"
 )
 
 
@@ -116,7 +160,7 @@ if uploaded_file is None:
 
 
 # -------------------------------------------------------
-# Upload PDF
+# Upload & Index Document
 # -------------------------------------------------------
 
 if uploaded_file is not None:
@@ -138,61 +182,58 @@ if uploaded_file is not None:
         if os.path.exists(save_path):
 
             st.sidebar.warning(
-                "⚠️ This PDF already exists."
+                "⚠️ This document already exists."
             )
 
         else:
 
             # -----------------------------------------
-            # Save PDF
+            # Save file
             # -----------------------------------------
 
-            with open(
-                save_path,
-                "wb"
-            ) as f:
-
-                f.write(
-                    uploaded_file.getbuffer()
-                )
-
+            with open(save_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
 
             st.sidebar.success(
-                f"{uploaded_file.name} "
-                "uploaded successfully!"
+                f"'{uploaded_file.name}' uploaded successfully!"
             )
 
-
             # -----------------------------------------
-            # Index PDF
+            # Index document
             # -----------------------------------------
 
             with st.spinner(
-                "Indexing PDF..."
+                f"Indexing '{uploaded_file.name}'..."
             ):
+                try:
+                    index_pdf(save_path)
 
-                index_pdf(
-                    save_path
-                )
+                    # Reload models with updated index
+                    st.cache_resource.clear()
 
+                    (
+                        embedding_model,
+                        retriever,
+                        llm,
+                        reranker
+                    ) = load_models()
 
-            # -----------------------------------------
-            # Reload models
-            # -----------------------------------------
+                    st.sidebar.success(
+                        "✅ Document indexed successfully!"
+                    )
 
-            st.cache_resource.clear()
+                except ValueError as ve:
+                    st.sidebar.error(
+                        f"❌ Could not index '{uploaded_file.name}':\n\n{ve}"
+                    )
+                    # Remove the file so it doesn't appear in the list
+                    os.remove(save_path)
 
-            (
-                embedding_model,
-                retriever,
-                llm,
-                reranker
-            ) = load_models()
-
-
-            st.sidebar.success(
-                "✅ Vector Database Updated!"
-            )
+                except Exception as e:
+                    st.sidebar.error(
+                        f"❌ Indexing failed: {e}"
+                    )
+                    os.remove(save_path)
 
 
         st.session_state.processed_upload = (
@@ -201,7 +242,7 @@ if uploaded_file is not None:
 
 
 # -------------------------------------------------------
-# Uploaded Documents
+# Uploaded Documents List
 # -------------------------------------------------------
 
 st.sidebar.divider()
@@ -217,7 +258,7 @@ pdfs = get_uploaded_pdfs()
 if len(pdfs) == 0:
 
     st.sidebar.info(
-        "No PDFs uploaded."
+        "No documents uploaded yet."
     )
 
 else:
@@ -243,31 +284,29 @@ else:
                 key=f"delete_{pdf}"
             ):
 
-                deleted_chunks = delete_pdf(
-                    pdf,
-                    embedding_model
-                )
+                try:
+                    deleted_chunks = delete_pdf(
+                        pdf,
+                        embedding_model
+                    )
 
+                    # Reload retriever
+                    st.cache_resource.clear()
 
-                # -------------------------------------
-                # Reload retriever
-                # -------------------------------------
+                    (
+                        embedding_model,
+                        retriever,
+                        llm,
+                        reranker
+                    ) = load_models()
 
-                st.cache_resource.clear()
+                    st.success(
+                        f"✅ '{pdf}' deleted "
+                        f"({deleted_chunks} chunks removed)"
+                    )
 
-                (
-                    embedding_model,
-                    retriever,
-                    llm,
-                    reranker
-                ) = load_models()
-
-
-                st.success(
-                    f"✅ {pdf} deleted "
-                    f"({deleted_chunks} chunks removed)"
-                )
-
+                except Exception as e:
+                    st.error(f"❌ Could not delete '{pdf}': {e}")
 
                 st.rerun()
 
@@ -300,24 +339,24 @@ if st.sidebar.button(
         "Rebuilding database..."
     ):
 
-        st.cache_resource.clear()
+        try:
+            st.cache_resource.clear()
 
-        build_vector_database(
-            "uploads"
-        )
+            build_vector_database("uploads")
 
+            (
+                embedding_model,
+                retriever,
+                llm,
+                reranker
+            ) = load_models()
 
-        (
-            embedding_model,
-            retriever,
-            llm,
-            reranker
-        ) = load_models()
+            st.sidebar.success(
+                "✅ Database rebuilt successfully!"
+            )
 
-
-    st.sidebar.success(
-        "✅ Database rebuilt successfully!"
-    )
+        except Exception as e:
+            st.sidebar.error(f"❌ Rebuild failed: {e}")
 
 
 # -------------------------------------------------------
@@ -328,21 +367,67 @@ if st.sidebar.button(
     "🗑 Clear Database"
 ):
 
-    if os.path.exists(
-        "chroma_db"
-    ):
+    try:
+        from pymongo import MongoClient
+        from config import MONGODB_DB_NAME, MONGODB_COLLECTION_NAME
 
-        shutil.rmtree(
-            "chroma_db"
+        uri = os.getenv("MONGODB_URI") or os.getenv("MONGODB_ATLAS_URI", "")
+        db_name = os.getenv("DATABASE_NAME", MONGODB_DB_NAME)
+        collection_name = os.getenv("COLLECTION_NAME", MONGODB_COLLECTION_NAME)
+        if uri:
+            client = MongoClient(uri)
+            client[db_name][collection_name].delete_many({})
+
+        st.cache_resource.clear()
+
+        st.sidebar.success(
+            "✅ Database cleared!"
         )
 
+    except Exception as e:
+        st.sidebar.error(f"❌ Could not clear database: {e}")
 
-    st.cache_resource.clear()
 
+# =======================================================
+# Helper: render sources with excerpts
+# =======================================================
 
-    st.sidebar.success(
-        "✅ Database cleared!"
-    )
+def _render_sources(sources: list) -> None:
+    """Display grouped citations with filename, page, and text excerpt."""
+    if not sources:
+        return
+
+    grouped_sources = group_sources(sources)
+
+    if not grouped_sources:
+        return
+
+    st.markdown("### 📚 Sources")
+
+    for file, entries in grouped_sources.items():
+
+        st.markdown(f"📄 **{file}**")
+
+        for entry in sorted(entries, key=lambda x: x["page"] or 0):
+
+            page_label = (
+                f"Page {entry['page']}"
+                if entry["page"] is not None
+                else "Page unknown"
+            )
+
+            excerpt = entry.get("excerpt", "").strip()
+
+            if excerpt:
+                st.markdown(
+                    f"&nbsp;&nbsp;&nbsp;• **{page_label}**\n"
+                    f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                    f"*\"{excerpt}\"*"
+                )
+            else:
+                st.markdown(
+                    f"&nbsp;&nbsp;&nbsp;• {page_label}"
+                )
 
 
 # =======================================================
@@ -359,45 +444,11 @@ for message in st.session_state.messages:
             message["content"]
         )
 
-
-        # ---------------------------------------------
-        # Display sources
-        # ---------------------------------------------
-
         if (
             message["role"] == "assistant"
             and message.get("sources")
         ):
-
-            grouped_sources = group_sources(
-                message["sources"]
-            )
-
-
-            if grouped_sources:
-
-                st.markdown(
-                    "### 📚 Sources"
-                )
-
-
-                for file, pages in (
-                    grouped_sources.items()
-                ):
-
-                    st.markdown(
-                        f"📄 **{file}**"
-                    )
-
-
-                    for page in sorted(
-                        pages
-                    ):
-
-                        st.markdown(
-                            f"&nbsp;&nbsp;&nbsp;• "
-                            f"Page {page}"
-                        )
+            _render_sources(message["sources"])
 
 
 # =======================================================
@@ -431,37 +482,24 @@ if question:
     # Display user message
     # ---------------------------------------------------
 
-    with st.chat_message(
-        "user"
-    ):
+    with st.chat_message("user"):
 
-        st.markdown(
-            question
-        )
+        st.markdown(question)
 
 
     # ---------------------------------------------------
     # Greeting
     # ---------------------------------------------------
 
-    if is_greeting(
-        question
-    ):
+    if is_greeting(question):
 
-        answer = greeting_response(
-            question
-        )
+        answer = greeting_response(question)
 
         sources = []
 
+        with st.chat_message("assistant"):
 
-        with st.chat_message(
-            "assistant"
-        ):
-
-            st.markdown(
-                answer
-            )
+            st.markdown(answer)
 
 
     # ---------------------------------------------------
@@ -474,81 +512,35 @@ if question:
 
         sources = []
 
+        with st.spinner("Thinking..."):
 
-        # ---------------------------------------------
-        # Run RAG ONLY ONCE
-        # ---------------------------------------------
+            try:
+                for result in ask_question(
+                    question,
+                    st.session_state.messages,
+                    retriever,
+                    llm,
+                    reranker
+                ):
 
-        with st.spinner(
-            "Thinking..."
-        ):
+                    if result["type"] == "text":
+                        answer += result["content"]
 
-            for result in ask_question(
-                question,
-                st.session_state.messages,
-                retriever,
-                llm,
-                reranker
-            ):
+                    elif result["type"] == "sources":
+                        sources = result["content"]
 
-                if result["type"] == "text":
-
-                    answer += result["content"]
-
-
-                elif result["type"] == "sources":
-
-                    sources = result["content"]
-
-
-        # ---------------------------------------------
-        # Display complete assistant response ONCE
-        # ---------------------------------------------
-
-        with st.chat_message(
-            "assistant"
-        ):
-
-            st.markdown(
-                answer
-            )
-
-
-            # -----------------------------------------
-            # Display sources ONCE
-            # -----------------------------------------
-
-            if sources:
-
-                grouped_sources = group_sources(
-                    sources
+            except Exception as e:
+                answer = (
+                    "❌ An error occurred while generating the answer. "
+                    "Please try again."
                 )
+                st.error(f"RAG pipeline error: {e}")
 
+        with st.chat_message("assistant"):
 
-                if grouped_sources:
+            st.markdown(answer)
 
-                    st.markdown(
-                        "### 📚 Sources"
-                    )
-
-
-                    for file, pages in (
-                        grouped_sources.items()
-                    ):
-
-                        st.markdown(
-                            f"📄 **{file}**"
-                        )
-
-
-                        for page in sorted(
-                            pages
-                        ):
-
-                            st.markdown(
-                                f"&nbsp;&nbsp;&nbsp;• "
-                                f"Page {page}"
-                            )
+            _render_sources(sources)
 
 
     # ---------------------------------------------------

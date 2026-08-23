@@ -132,7 +132,8 @@ for test in TEST_QUESTIONS:
 
     question = test["question"]
 
-    expected_files = test["expected_files"]
+    # Graceful fallback if expected_files is missing from a test entry
+    expected_files = test.get("expected_files", [])
 
     answerable = test["answerable"]
 

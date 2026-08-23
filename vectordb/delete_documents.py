@@ -1,41 +1,55 @@
-from langchain_chroma import Chroma
+import os
 
-from config import CHROMA_DB_DIR
+from dotenv import load_dotenv
+from pymongo import MongoClient
+
+from config import (
+    MONGODB_DB_NAME,
+    MONGODB_COLLECTION_NAME,
+)
+
+load_dotenv()
 
 
-def delete_document(pdf_name, embedding_model):
+def delete_document(pdf_name, embedding_model=None):
     """
-    Delete all chunks belonging to a PDF from ChromaDB.
+    Delete all chunks belonging to a PDF from MongoDB Atlas.
+
+    Parameters
+    ----------
+    pdf_name : str
+        The bare filename (e.g. "report.pdf") — matched against
+        the ``source`` metadata field stored in each document.
+    embedding_model : ignored
+        Kept for API compatibility with old Chroma version.
+
+    Returns
+    -------
+    int
+        Number of deleted chunks.
     """
-
-    vector_store = Chroma(
-        persist_directory=CHROMA_DB_DIR,
-        embedding_function=embedding_model
-    )
-
-    # Get all documents and metadata
-    data = vector_store.get(
-        include=["metadatas"]
-    )
-
-    ids_to_delete = []
-
-    for doc_id, metadata in zip(
-        data["ids"],
-        data["metadatas"]
-    ):
-
-        source = metadata.get("source", "")
-
-        if source.endswith(pdf_name):
-            ids_to_delete.append(doc_id)
-
-    if ids_to_delete:
-
-        vector_store.delete(
-            ids=ids_to_delete
+    uri = os.getenv("MONGODB_URI") or os.getenv("MONGODB_ATLAS_URI")
+    if not uri:
+        raise EnvironmentError(
+            "MONGODB_URI is not set. "
+            "Add it to your .env file."
         )
 
-        return len(ids_to_delete)
+    db_name = os.getenv("DATABASE_NAME", MONGODB_DB_NAME)
+    collection_name = os.getenv("COLLECTION_NAME", MONGODB_COLLECTION_NAME)
 
-    return 0
+    client = MongoClient(uri)
+    collection = client[db_name][collection_name]
+
+    # Chunks store metadata as nested dict: {"source": "/path/to/file.pdf", ...}
+    # We match on the trailing filename so it works regardless of upload path.
+    result = collection.delete_many(
+        {"metadata.source": {"$regex": pdf_name.replace(".", r"\.")}}
+    )
+
+    deleted_count = result.deleted_count
+    print(
+        f"Deleted {deleted_count} chunks for '{pdf_name}' "
+        "from MongoDB Atlas."
+    )
+    return deleted_count
