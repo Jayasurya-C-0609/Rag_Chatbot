@@ -52,7 +52,7 @@ def get_contexts(
     reranked_results = reranker.rerank(
         question,
         docs,
-        top_k=4
+        top_k=8
     )
 
     # -------------------------------------------------
@@ -61,7 +61,7 @@ def get_contexts(
 
     mmr_results = [
         (doc, 0.0)
-        for doc in docs[:4]
+        for doc in docs[:8]
     ]
 
     # -------------------------------------------------

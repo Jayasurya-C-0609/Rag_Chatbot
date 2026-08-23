@@ -1,15 +1,9 @@
 import json
 import asyncio
-import os
-
-from dotenv import load_dotenv
-
-from langchain_ollama import ChatOllama
 
 from openai import AsyncOpenAI
 
 from ragas.llms import llm_factory
-
 from ragas.embeddings import HuggingFaceEmbeddings
 
 from ragas.metrics.collections import (
@@ -22,7 +16,15 @@ from ragas.metrics.collections import (
 
 
 # =========================================================
-# LOAD ENVIRONMENT
+# CONFIGURATION
+# =========================================================
+
+RESULTS_FILE = "evaluation/evaluation_results.json"
+RAGAS_RESULTS_FILE = "evaluation/ragas_results.json"
+
+
+# =========================================================
+# OLLAMA CLIENT
 # =========================================================
 
 ollama_client = AsyncOpenAI(
@@ -31,12 +33,18 @@ ollama_client = AsyncOpenAI(
 )
 
 
+# =========================================================
+# RAGAS LLM
+# =========================================================
+
 ragas_llm = llm_factory(
     "qwen2.5:3b",
     provider="openai",
     client=ollama_client,
-    max_tokens=2048
+    max_tokens=4096
 )
+
+
 # =========================================================
 # RAGAS EMBEDDINGS
 # =========================================================
@@ -81,7 +89,7 @@ answer_correctness_metric = AnswerCorrectness(
 def load_results():
 
     with open(
-        "evaluation/evaluation_results.json",
+        RESULTS_FILE,
         "r",
         encoding="utf-8"
     ) as f:
@@ -124,6 +132,7 @@ def abstention_score(
 
 async def run_metric(
     metric,
+    metric_name,
     **kwargs
 ):
 
@@ -140,8 +149,8 @@ async def run_metric(
     except Exception as e:
 
         print(
-            "\nMetric Error:",
-            type(e).__name__
+            f"\nMetric Error [{metric_name}]: "
+            f"{type(e).__name__}"
         )
 
         print(e)
@@ -188,6 +197,8 @@ async def evaluate_sample(sample):
 
         context_precision_metric,
 
+        "Context Precision",
+
         user_input=question,
 
         retrieved_contexts=contexts,
@@ -203,6 +214,8 @@ async def evaluate_sample(sample):
     scores["context_recall"] = await run_metric(
 
         context_recall_metric,
+
+        "Context Recall",
 
         user_input=question,
 
@@ -220,6 +233,8 @@ async def evaluate_sample(sample):
 
         faithfulness_metric,
 
+        "Faithfulness",
+
         user_input=question,
 
         response=answer,
@@ -236,6 +251,8 @@ async def evaluate_sample(sample):
 
         answer_relevance_metric,
 
+        "Answer Relevance",
+
         user_input=question,
 
         response=answer
@@ -250,6 +267,8 @@ async def evaluate_sample(sample):
 
         answer_correctness_metric,
 
+        "Answer Correctness",
+
         user_input=question,
 
         response=answer,
@@ -257,6 +276,10 @@ async def evaluate_sample(sample):
         reference=reference
     )
 
+
+    # =====================================================
+    # PRINT SCORES
+    # =====================================================
 
     print(
         "Context Precision:",
@@ -288,6 +311,29 @@ async def evaluate_sample(sample):
 
 
 # =========================================================
+# AVERAGE
+# =========================================================
+
+def average(results, metric):
+
+    values = [
+
+        result[metric]
+
+        for result in results
+
+        if result.get(metric) is not None
+
+    ]
+
+    if not values:
+
+        return 0.0
+
+    return sum(values) / len(values)
+
+
+# =========================================================
 # MAIN
 # =========================================================
 
@@ -305,7 +351,13 @@ async def main():
     print("=" * 60)
 
 
+    # =====================================================
+    # EVALUATE QUESTIONS
+    # =====================================================
+
     for sample in data:
+
+        question = sample["question"]
 
         answerable = sample["answerable"]
 
@@ -333,89 +385,92 @@ async def main():
 
 
         # -------------------------------------------------
-        # RAGAS
+        # Only RAGAS-evaluate answerable questions
         # -------------------------------------------------
 
-        if answerable:
+        if not answerable:
 
-            scores = await evaluate_sample(
-                sample
-            )
+            continue
 
-            results.append(
-                scores
-            )
+
+        scores = await evaluate_sample(
+            sample
+        )
+
+
+        # -------------------------------------------------
+        # Save question + scores
+        # -------------------------------------------------
+
+        result = {
+
+            "question": question,
+
+            "context_precision":
+                scores["context_precision"],
+
+            "context_recall":
+                scores["context_recall"],
+
+            "faithfulness":
+                scores["faithfulness"],
+
+            "answer_relevance":
+                scores["answer_relevance"],
+
+            "answer_correctness":
+                scores["answer_correctness"]
+        }
+
+
+        results.append(result)
 
 
     # =====================================================
-    # AVERAGE
+    # SAVE PER-QUESTION RESULTS
     # =====================================================
 
-    def average(metric):
+    with open(
+        RAGAS_RESULTS_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
-        values = [
-
-            r[metric]
-
-            for r in results
-
-            if r[metric] is not None
-
-        ]
-
-        if not values:
-            return 0.0
-
-        return sum(values) / len(values)
+        json.dump(
+            results,
+            f,
+            indent=4,
+            ensure_ascii=False
+        )
 
 
     # =====================================================
     # FINAL RESULTS
     # =====================================================
 
-    print("\n" + "=" * 60)
-    print("FINAL RAGAS EVALUATION")
-    print("=" * 60)
-
-
-    print(
-        "\nContext Precision:",
-        round(
-            average("context_precision"),
-            4
-        )
+    context_precision = average(
+        results,
+        "context_precision"
     )
 
-    print(
-        "Context Recall:",
-        round(
-            average("context_recall"),
-            4
-        )
+    context_recall = average(
+        results,
+        "context_recall"
     )
 
-    print(
-        "Faithfulness:",
-        round(
-            average("faithfulness"),
-            4
-        )
+    faithfulness = average(
+        results,
+        "faithfulness"
     )
 
-    print(
-        "Answer Relevance:",
-        round(
-            average("answer_relevance"),
-            4
-        )
+    answer_relevance = average(
+        results,
+        "answer_relevance"
     )
 
-    print(
-        "Answer Correctness:",
-        round(
-            average("answer_correctness"),
-            4
-        )
+    answer_correctness = average(
+        results,
+        "answer_correctness"
     )
 
 
@@ -426,9 +481,59 @@ async def main():
         len(abstention_scores)
 
         if abstention_scores
-        else 0
+
+        else 0.0
     )
 
+
+    # =====================================================
+    # PRINT FINAL RESULTS
+    # =====================================================
+
+    print("\n" + "=" * 60)
+    print("FINAL RAGAS EVALUATION")
+    print("=" * 60)
+
+
+    print(
+        "\nContext Precision:",
+        round(
+            context_precision,
+            4
+        )
+    )
+
+    print(
+        "Context Recall:",
+        round(
+            context_recall,
+            4
+        )
+    )
+
+    print(
+        "Faithfulness:",
+        round(
+            faithfulness,
+            4
+        )
+    )
+
+    print(
+        "Answer Relevance:",
+        round(
+            answer_relevance,
+            4
+        )
+    )
+
+    print(
+        "Answer Correctness:",
+        round(
+            answer_correctness,
+            4
+        )
+    )
 
     print(
         "Abstention Accuracy:",
@@ -437,6 +542,42 @@ async def main():
             4
         )
     )
+
+
+    # =====================================================
+    # SAVE FINAL SUMMARY
+    # =====================================================
+
+    summary = {
+
+        "context_precision":
+            round(context_precision, 4),
+
+        "context_recall":
+            round(context_recall, 4),
+
+        "faithfulness":
+            round(faithfulness, 4),
+
+        "answer_relevance":
+            round(answer_relevance, 4),
+
+        "answer_correctness":
+            round(answer_correctness, 4),
+
+        "abstention_accuracy":
+            round(abstention_accuracy, 4)
+    }
+
+
+    print("\n" + "=" * 60)
+
+    print(
+        "Saved per-question results:",
+        RAGAS_RESULTS_FILE
+    )
+
+    print("=" * 60)
 
 
     print("\n" + "=" * 60)
@@ -450,4 +591,6 @@ async def main():
 
 if __name__ == "__main__":
 
-    asyncio.run(main())
+    asyncio.run(
+        main()
+    )
