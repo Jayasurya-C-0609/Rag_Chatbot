@@ -1,7 +1,23 @@
 import os
+import re
 
 from langchain_core.prompts import ChatPromptTemplate
-from retriever.reranker import rerank_documents
+from retriever.reranker import remove_duplicate_documents
+from utils.source_utils import extract_sources
+
+
+
+def clean_model_output(text):
+
+    text = re.sub(
+        r"<think>.*?</think>",
+        "",
+        text,
+        flags=re.DOTALL
+    )
+
+    return text.strip()
+
 
 # -------------------------------------------------
 # RAG prompt
@@ -10,17 +26,21 @@ def build_rag_prompt():
 
     return ChatPromptTemplate.from_template(
         """
-You are an AI assistant.
+You are a document-based AI assistant.
 
-Use the conversation history to understand follow-up questions.
+Answer the question using ONLY the provided context.
 
-Answer ONLY from the provided context.
+Rules:
 
-If the context contains enough information to answer the question, provide a concise explanation.
+- Do not use outside knowledge.
+- Do not invent information.
+- Do not add facts that are not supported by the context.
+- Answer directly and clearly.
+- If the context partially answers the question, use only
+  the information available.
+- If the context contains no relevant information, reply exactly:
 
-If the context partially answers the question, answer using only the available information and clearly state any limitation.
-
-Only reply with "I don't know based on the provided documents." when the context contains no relevant information.
+"I don't know based on the provided documents."
 
 Conversation History:
 {history}
@@ -57,28 +77,51 @@ def build_query_rewrite_prompt():
             (
                 "system",
                 """
-Rewrite the latest user question as a standalone question.
+You rewrite user questions for document retrieval.
 
-Use the conversation history to resolve references like
-"it", "they", "that model", etc.
+Your goal is to create a standalone retrieval query.
 
-Do not answer the question.
+Rules:
 
-Return only the rewritten question.
+1. If the user's question is already standalone and clear,
+   return it unchanged.
+
+2. Only rewrite the question when it contains a reference that
+   requires conversation history, such as:
+   "it", "this", "that", "they", "the previous model",
+   "how does it work", or similar references.
+
+3. Preserve the original meaning of the question.
+
+4. Do not expand abbreviations unnecessarily.
+
+5. Do not replace terms with their full names unless necessary
+   to resolve ambiguity.
+
+6. Do not add information that is not present in the question
+   or conversation history.
+
+7. Do not answer the question.
+
+8. Return ONLY the standalone question.
+
+Conversation History:
+{history}
 """
             ),
             (
                 "human",
-                "Conversation history:\n{history}\n\nQuestion:\n{question}"
+                "Question:\n{question}"
             )
         ]
     )
-
-
 # -------------------------------------------------
 # Rewrite follow-up question
 # -------------------------------------------------
 def rewrite_query(question, chat_history, llm):
+    
+    if not chat_history:
+        return question.strip()
 
     history = ""
 
@@ -110,17 +153,20 @@ def rewrite_query(question, chat_history, llm):
             ):
                 rewritten += item.get("text", "")
 
-        return rewritten.strip()
+            return clean_model_output(rewritten)
 
-    return response.content.strip()
+    return clean_model_output(response.content)
 
 
 # -------------------------------------------------
 # Main RAG pipeline
 # -------------------------------------------------
-def ask_question(question, chat_history, retriever, llm):
+def ask_question(question, chat_history, retriever, llm,reranker):
 
+    # -------------------------------------------------
     # Rewrite follow-up question
+    # -------------------------------------------------
+
     standalone_question = rewrite_query(
         question,
         chat_history,
@@ -130,25 +176,113 @@ def ask_question(question, chat_history, retriever, llm):
     print(f"Original: {question}")
     print(f"Standalone: {standalone_question}")
 
-    # Use the normal MMR retriever
-    candidate_docs = retriever.invoke(
+    # -------------------------------------------------
+    # Retrieve documents
+    # -------------------------------------------------
+
+    # -------------------------------------------------
+    # Retrieve candidate documents
+    # -------------------------------------------------
+
+    docs = retriever.invoke(
         standalone_question
     )
 
-    docs = rerank_documents(
+    print(
+        f"Retrieved chunks: {len(docs)}"
+    )
+
+    # -------------------------------------------------
+    # Cross-encoder reranking
+    # -------------------------------------------------
+
+    reranked_results = reranker.rerank(
         standalone_question,
-        candidate_docs,
+        docs,
         top_k=4
     )
 
-    print(f"Retrieved: {len(candidate_docs)}")
-    print(f"After reranking: {len(docs)}")
-    print(f"Retrieved chunks: {len(docs)}")
+    # -------------------------------------------------
+    # Preserve top MMR candidates
+    # -------------------------------------------------
 
+    mmr_results = [
+        (doc, 0.0)
+        for doc in docs[:4]
+    ]
+
+    # -------------------------------------------------
+    # Combine both
+    # -------------------------------------------------
+
+    combined_results = (
+        reranked_results +
+        mmr_results
+    )
+
+    # -------------------------------------------------
+    # Remove duplicate chunks
+    # -------------------------------------------------
+
+    combined_results = remove_duplicate_documents(
+        combined_results
+    )
+
+    # -------------------------------------------------
+    # Final top K
+    # -------------------------------------------------
+
+    combined_results = combined_results[:8]
+
+    
+    reranked_docs = [
+        doc
+        for doc, score in combined_results
+    ]
+
+
+    print("\n" + "=" * 60)
+    print("HYBRID RETRIEVAL RESULTS")
+    print("=" * 60)
+
+    for i, (doc, score) in enumerate(
+        reranked_results,
+        start=1
+    ):
+
+        print(
+            i,
+            os.path.basename(
+                doc.metadata.get("source", "")
+            ),
+            "Page:",
+            doc.metadata.get("page", 0) + 1,
+            "Score:",
+            float(score)
+        )
+    print(
+        f"Reranked chunks: {len(reranked_docs)}"
+    )
+
+
+    # -------------------------------------------------
     # Build context
-    context = format_context(docs)
+    # -------------------------------------------------
 
-    # Build conversation history
+    context = format_context(reranked_docs)
+
+
+    print("\n" + "=" * 60)
+    print("FINAL CONTEXT SENT TO LLM")
+    print("=" * 60)
+
+    print(context)
+    # -------------------------------------------------
+    # Build prompt
+    # -------------------------------------------------
+
+    prompt = build_rag_prompt()
+
     history = ""
 
     for message in chat_history:
@@ -158,44 +292,46 @@ def ask_question(question, chat_history, retriever, llm):
             f"{message['content']}\n"
         )
 
-    # Build prompt
-    prompt = build_rag_prompt()
-
     messages = prompt.format_messages(
         context=context,
         question=standalone_question,
         history=history
     )
 
-    # Generate answer
-    response = llm.invoke(messages)
+    # -------------------------------------------------
+    # Stream response
+    # -------------------------------------------------
 
-    if isinstance(response.content, list):
+    for chunk in llm.stream(messages):
 
-        answer = ""
+        if isinstance(chunk.content, str):
 
-        for item in response.content:
-
-            if (
-                isinstance(item, dict)
-                and item.get("type") == "text"
-            ):
-                answer += item.get("text", "")
-
-    else:
-
-        answer = response.content
-
-    # Collect sources
-    sources = []
-
-    for doc in docs:
-
-        sources.append(
-            {
-                "file": os.path.basename(doc.metadata["source"]),
-                "page": doc.metadata["page"] + 1
+            yield {
+                "type": "text",
+                "content": chunk.content
             }
-        )
 
-    return answer, sources
+        elif isinstance(chunk.content, list):
+
+            for item in chunk.content:
+
+                if (
+                    isinstance(item, dict)
+                    and item.get("type") == "text"
+                ):
+
+                    yield {
+                        "type": "text",
+                        "content": item.get("text", "")
+                    }
+
+    # -------------------------------------------------
+    # Sources
+    # -------------------------------------------------
+
+    sources = extract_sources(reranked_docs)
+
+    yield {
+        "type": "sources",
+        "content": sources
+    }

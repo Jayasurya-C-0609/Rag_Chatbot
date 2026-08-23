@@ -3,22 +3,27 @@ langchain-core
 langchain-community
 langchain-huggingface
 langchain-text-splitters
-langchain-chromadb
+langchain-chroma
 langchain-groq
-
 sentence-transformers
 transformers
 torch
-
 chromadb
-
 pypdf
 pymupdf
-
 streamlit
-
 python-dotenv
-
-
 tiktoken
 
+# RAG evaluation
+ragas
+instructor
+
+# Ollama
+langchain-ollama
+ollama
+
+# Numerical / ML dependencies
+numpy
+pandas
+scikit-learn

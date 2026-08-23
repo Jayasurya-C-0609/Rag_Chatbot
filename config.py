@@ -4,4 +4,4 @@ CHROMA_DB_DIR = "chroma_db"
 
 COLLECTION_NAME = "rag_documents"
 
-LLM_MODEL = "llama-3.3-70b-versatile"
+LLM_MODEL = "openai/gpt-oss-20b"

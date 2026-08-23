@@ -1,3 +1,16 @@
+
+'''
+from langchain_ollama import ChatOllama
+
+
+def load_llm():
+
+    return ChatOllama(
+        model="qwen3.5:9b",
+        temperature=0
+    )
+'''
+
 import os
 
 from dotenv import load_dotenv

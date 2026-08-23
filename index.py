@@ -7,8 +7,8 @@ from vectordb.chroma_db import (
     create_vector_store,
     add_documents
 )
-
-from config import CHROMA_DB_DIR
+from langchain_chroma import Chroma
+from config import CHROMA_DB_DIR, COLLECTION_NAME
 
 
 # ---------------------------------------------------
@@ -70,18 +70,46 @@ def build_vector_database(pdf_folder):
 
     chunks = split_documents(documents)
 
-    # Debug (temporary)
+    # Debug
     if chunks:
         print(chunks[0].metadata)
 
     embedding_model = load_embedding_model()
 
+    # -------------------------------------------------
+    # Delete existing Chroma collection
+    # -------------------------------------------------
+
     if os.path.exists(CHROMA_DB_DIR):
 
-        import shutil
-        shutil.rmtree(CHROMA_DB_DIR)
+        try:
+
+            old_vector_store = Chroma(
+                persist_directory=CHROMA_DB_DIR,
+                embedding_function=embedding_model,
+                collection_name=COLLECTION_NAME
+            )
+
+            old_vector_store.delete_collection()
+
+            print("Old Chroma collection deleted.")
+
+        except Exception as e:
+
+            print(
+                "Could not delete old collection:",
+                e
+            )
+
+    # -------------------------------------------------
+    # Create new vector store
+    # -------------------------------------------------
 
     create_vector_store(
         chunks,
         embedding_model
+    )
+
+    print(
+        f"Vector database rebuilt successfully."
     )

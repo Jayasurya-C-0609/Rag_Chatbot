@@ -1,10 +1,8 @@
 # Environment variables
-
 .env
 
 # Python
-
-**pycache**/
+__pycache__/
 *.py[cod]
 *.pyo
 *.pyd
@@ -13,28 +11,23 @@
 .mypy_cache/
 
 # Virtual environments
-
 venv/
 .venv/
 env/
 
 # Chroma vector database
-
 chroma_db/
+vectordb/
 
 # Uploaded PDFs
-
 uploads/
 
-# Data folder (optional)
-
+# Data folder
 data/
 
 # VS Code
-
 .vscode/
 
 # OS files
-
 .DS_Store
 Thumbs.db

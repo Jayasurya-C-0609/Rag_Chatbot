@@ -1,5 +1,5 @@
 from langchain_chroma import Chroma
-from config import CHROMA_DB_DIR
+from config import CHROMA_DB_DIR,COLLECTION_NAME
 
 
 def load_vector_store(embedding_model):
@@ -21,11 +21,11 @@ def create_vector_store(chunks, embedding_model):
         documents=chunks,
         embedding=embedding_model,
         ids=ids,
-        persist_directory=CHROMA_DB_DIR
+        persist_directory=CHROMA_DB_DIR,
+        collection_name=COLLECTION_NAME
     )
 
     return vector_store
-
 
 def add_documents(chunks, embedding_model):
 

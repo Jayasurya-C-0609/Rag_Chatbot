@@ -5,36 +5,57 @@ from vectordb.chroma_db import load_vector_store
 from loaders.pdf_loader import load_pdfs
 from preprocess.splitter import split_documents
 
+
 def load_hybrid_retriever(embedding_model):
 
-    # Semantic retriever
-    vector_store = load_vector_store(embedding_model)
+    # -------------------------------------------------
+    # Semantic Retriever
+    # -------------------------------------------------
+
+    vector_store = load_vector_store(
+        embedding_model
+    )
 
     semantic_retriever = vector_store.as_retriever(
         search_type="mmr",
         search_kwargs={
-            "k": 6,
-            "fetch_k": 20,
+            "k": 10,
+            "fetch_k": 40,
             "lambda_mult": 0.75
         }
     )
 
-    # BM25 retriever
-    documents = load_pdfs("uploads")
+    # -------------------------------------------------
+    # BM25 Retriever
+    # -------------------------------------------------
 
-    chunks = split_documents(documents)
+    documents = load_pdfs(
+        "uploads"
+    )
 
-    bm25_retriever = BM25Retriever.from_documents(chunks)
+    chunks = split_documents(
+        documents
+    )
 
-    bm25_retriever.k = 6
+    bm25_retriever = BM25Retriever.from_documents(
+        chunks
+    )
 
-    # Combine both retrievers
+    bm25_retriever.k = 8
+
+    # -------------------------------------------------
+    # Hybrid Retriever
+    # -------------------------------------------------
+
     hybrid = EnsembleRetriever(
         retrievers=[
             semantic_retriever,
             bm25_retriever
         ],
-        weights=[0.7, 0.3]
+        weights=[
+            0.6,
+            0.4
+        ]
     )
 
     return hybrid
