@@ -23,6 +23,9 @@ chroma_db/
 # Uploaded PDFs
 uploads/
 
+# Generated evaluation output
+evaluation/evaluation_results.json
+
 # Data folder
 data/
 

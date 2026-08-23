@@ -100,7 +100,7 @@ No aggregate benchmark scores are claimed here because they are not stored in th
 
 Ollama is used by the RAGAS evaluation path through its OpenAI-compatible endpoint at `http://localhost:11434/v1`. The RAGAS script uses `qwen2.5:3b` as its evaluation LLM and configures the same MiniLM embedding model on CUDA. The optional `Modelfile` references `qwen3.5:9b`; this model is not the active application LLM.
 
-Ollama models are installed separately and are not included in `requirements.txt`.
+Ollama models are installed separately. Python dependencies are managed by `uv` in `pyproject.toml` and locked in `uv.lock`.
 
 ## Project Structure
 
@@ -110,7 +110,8 @@ Ollama models are installed separately and are not included in `requirements.txt
 ├── config.py                      # Model, Chroma path, and collection settings
 ├── index.py                       # PDF indexing and full database rebuild
 ├── Modelfile                      # Ollama qwen3.5:9b model parameters
-├── requirements.txt               # Python dependencies
+├── pyproject.toml                  # Python dependencies and project metadata
+├── uv.lock                         # Locked Python dependencies
 ├── embeddings/
 │   └── embedding_model.py         # Hugging Face embedding loader
 ├── evaluation/
@@ -153,9 +154,7 @@ These commands are suitable for Windows PowerShell:
 git clone https://github.com/Jayasurya-C-0609/Rag_Chatbot.git
 cd Rag_Chatbot
 
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+uv sync
 
 Copy-Item .env.example .env
 ```
@@ -190,10 +189,10 @@ The active Streamlit application uses Groq, not Ollama. Ollama is currently used
 
 ## Running the Application
 
-From the repository root with the virtual environment activated:
+From the repository root:
 
 ```powershell
-streamlit run app.py
+uv run streamlit run app.py
 ```
 
 Use the sidebar to upload PDFs, inspect uploaded files, delete documents, rebuild the index, or clear the local Chroma directory. Ask questions in the chat area to receive a streamed answer and extracted file/page sources.

@@ -1,0 +1,36 @@
+[project]
+name = "clean-rag-chatbot"
+version = "0.1.0"
+description = "Document-grounded PDF question-answering assistant"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "chromadb",
+    "instructor",
+    "langchain",
+    "langchain-chroma",
+    "langchain-classic",
+    "langchain-community",
+    "langchain-google-genai",
+    "langchain-groq",
+    "langchain-huggingface",
+    "langchain-ollama",
+    "langchain-text-splitters",
+    "numpy",
+    "ollama",
+    "openai",
+    "pandas",
+    "pymupdf",
+    "pypdf",
+    "python-dotenv",
+    "ragas",
+    "scikit-learn",
+    "sentence-transformers",
+    "streamlit",
+    "tiktoken",
+    "torch",
+    "transformers",
+]
+
+[tool.uv]
+package = false
