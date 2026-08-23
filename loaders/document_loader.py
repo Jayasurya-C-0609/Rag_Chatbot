@@ -83,12 +83,12 @@ def load_documents(folder: str) -> list:
             docs = load_file(str(file_path))
             all_docs.extend(docs)
             print(
-                f"  ✅ Loaded {len(docs)} page(s) from "
+                f"  [OK] Loaded {len(docs)} page(s) from "
                 f"'{file_path.name}'"
             )
         except Exception as exc:
             print(
-                f"  ⚠️  Could not load '{file_path.name}': {exc}"
+                f"  [WARN] Could not load '{file_path.name}': {exc}"
             )
 
     return all_docs

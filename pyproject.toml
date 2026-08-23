@@ -33,6 +33,14 @@ dependencies = [
     "torch",
     "transformers",
     "torchvision",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.52.4",
+    "python-multipart>=0.0.32",
+    "sse-starlette>=3.4.8",
+    "pydantic-settings>=2.15.0",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
 ]
 
 [tool.uv]
