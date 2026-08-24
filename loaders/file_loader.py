@@ -15,56 +15,8 @@ def load_file(path):
     extension = os.path.splitext(path)[1].lower()
 
     if extension == ".pdf":
-
         loader = PyPDFLoader(path)
-
         file_type = "pdf"
-
-        documents = loader.load()
-
-        # ---------------------------------------------
-        # DEBUG PDF PAGE CONTENT
-        # ---------------------------------------------
-
-        print("\n" + "=" * 70)
-        print("PDF PAGE DEBUG:", os.path.basename(path))
-        print("=" * 70)
-
-        for i, doc in enumerate(documents):
-
-            page = doc.metadata.get("page")
-
-            page_number = (
-                page + 1
-                if page is not None
-                else i + 1
-            )
-
-            if page_number in [12, 13, 14]:
-
-                print("\n" + "-" * 60)
-                print(
-                    f"RAW PAGE {page_number}"
-                )
-                print("-" * 60)
-
-                print(
-                    doc.page_content[:1500]
-                )
-
-                print(
-                    "\nMetadata:",
-                    doc.metadata
-                )
-
-        # ---------------------------------------------
-        # Add file type
-        # ---------------------------------------------
-
-        for doc in documents:
-            doc.metadata["file_type"] = file_type
-
-        return documents
 
     elif extension == ".txt":
         loader = TextLoader(

@@ -10,91 +10,6 @@ from collections import defaultdict
 keyword_reranker = KeywordReranker()
 
 
-def debug_trace_target_document(
-    stage_name,
-    docs_with_scores,
-    target_page=13,
-    target_phrase="eligibility"
-):
-
-    print("\n" + "-" * 60)
-    print(f"[TRACE] {stage_name}")
-    print("-" * 60)
-
-    found = False
-
-    for rank, item in enumerate(
-        docs_with_scores,
-        start=1
-    ):
-
-        if isinstance(item, tuple):
-
-            doc = item[0]
-            score = item[1]
-
-        else:
-
-            doc = item
-            score = "N/A"
-
-        page = doc.metadata.get("page")
-
-        page_num = (
-            page + 1
-            if page is not None
-            else -1
-        )
-
-        content = doc.page_content.lower()
-
-        if (
-            page_num == target_page
-            or target_phrase.lower() in content
-        ):
-
-            found = True
-
-            print(
-                f"FOUND | Rank: {rank} | "
-                f"Page: {page_num} | "
-                f"Score: {score}"
-            )
-
-            print(
-                "Source:",
-                os.path.basename(
-                    doc.metadata.get(
-                        "source",
-                        "Unknown"
-                    )
-                )
-            )
-
-            print(
-                "Chunk ID:",
-                doc.metadata.get(
-                    "chunk_id",
-                    "N/A"
-                )
-            )
-
-            print(
-                "Preview:",
-                doc.page_content[:300]
-                .replace("\n", " ")
-            )
-
-    if not found:
-
-        print(
-            f"NOT FOUND | "
-            f"Page {target_page} / "
-            f"'{target_phrase}'"
-        )
-
-
-
 def clean_model_output(text):
 
     # Remove Qwen thinking blocks
@@ -404,7 +319,7 @@ def ask_question(
     )
 
     # -------------------------------------------------
-    # Final top 8
+    # Final top 12
     # -------------------------------------------------
 
     selected = fused_results[:12]
@@ -484,46 +399,49 @@ def ask_question(
         history=history
     )
 
-    # -------------------------------------------------
+   # -------------------------------------------------
     # Generate answer
     # -------------------------------------------------
 
-    full_response = ""
+    response = llm.invoke(messages)
 
-    for chunk in llm.stream(messages):
+    if isinstance(response.content, str):
+        full_response = response.content
 
-        if isinstance(
-            chunk.content,
-            str
-        ):
+    elif isinstance(response.content, list):
 
-            full_response += chunk.content
+        full_response = ""
 
-        elif isinstance(
-            chunk.content,
-            list
-        ):
+        for item in response.content:
 
-            for item in chunk.content:
+            if isinstance(item, str):
+                full_response += item
 
-                if (
-                    isinstance(item, dict)
-                    and item.get("type") == "text"
-                ):
+            elif isinstance(item, dict):
+                full_response += item.get(
+                    "text",
+                    ""
+                )
 
-                    full_response += item.get(
-                        "text",
-                        ""
-                    )
+    else:
+        full_response = str(
+            response.content
+        )
 
     full_response = clean_model_output(
         full_response
     )
 
+
+    # -------------------------------------------------
+    # Answer
+    # -------------------------------------------------
+
     yield {
         "type": "text",
         "content": full_response
     }
+
 
     # -------------------------------------------------
     # Sources
