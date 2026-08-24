@@ -5,3 +5,5 @@ CHROMA_DB_DIR = "chroma_db"
 COLLECTION_NAME = "rag_documents"
 
 LLM_MODEL = "openai/gpt-oss-20b"
+
+UPLOAD_FOLDER = "uploads"

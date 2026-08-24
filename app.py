@@ -7,11 +7,11 @@ from retriever.hybrid_retriever import load_hybrid_retriever
 from llm.llm import load_llm
 from rag.rag_chain import ask_question
 
-from index import index_pdf, build_vector_database
+from index import index_file, build_vector_database
 
 from utils.file_manager import (
-    get_uploaded_pdfs,
-    delete_pdf
+    get_uploaded_files,
+    delete_file
 )
 
 from utils.greetings import (
@@ -56,7 +56,7 @@ if "messages" not in st.session_state:
 st.title("📚 RAG Chatbot")
 
 st.write(
-    "Ask questions from your PDF documents."
+    "Ask questions from your uploaded documents."
 )
 
 
@@ -92,17 +92,25 @@ def load_models():
     reranker
 ) = load_models()
 
-
 # -------------------------------------------------------
 # Sidebar
 # -------------------------------------------------------
 
-st.sidebar.title("📂 PDF Management")
+st.sidebar.title("📂 Document Management")
 
 
-uploaded_file = st.sidebar.file_uploader(
-    "Upload a PDF",
-    type=["pdf"]
+uploaded_files = st.sidebar.file_uploader(
+    "Upload documents",
+    type=[
+        "pdf",
+        "txt",
+        "csv",
+        "xlsx",
+        "xls",
+        "docx",
+        "pptx"
+    ],
+    accept_multiple_files=True
 )
 
 
@@ -110,26 +118,34 @@ uploaded_file = st.sidebar.file_uploader(
 # Reset Upload State
 # -------------------------------------------------------
 
-if uploaded_file is None:
+if not uploaded_files:
 
-    st.session_state.processed_upload = None
+    st.session_state.processed_upload = []
 
 
 # -------------------------------------------------------
-# Upload PDF
+# Upload Documents
 # -------------------------------------------------------
 
-if uploaded_file is not None:
+if uploaded_files:
 
-    if (
-        uploaded_file.name
-        != st.session_state.processed_upload
-    ):
+    for uploaded_file in uploaded_files:
+
+        filename = uploaded_file.name
+
+        # ---------------------------------------------
+        # Skip already processed file
+        # ---------------------------------------------
+
+        if filename in st.session_state.processed_upload:
+            continue
+
 
         save_path = os.path.join(
             "uploads",
-            uploaded_file.name
+            filename
         )
+
 
         # ---------------------------------------------
         # Duplicate check
@@ -138,66 +154,74 @@ if uploaded_file is not None:
         if os.path.exists(save_path):
 
             st.sidebar.warning(
-                "⚠️ This PDF already exists."
+                f"⚠️ {filename} already exists."
             )
 
-        else:
-
-            # -----------------------------------------
-            # Save PDF
-            # -----------------------------------------
-
-            with open(
-                save_path,
-                "wb"
-            ) as f:
-
-                f.write(
-                    uploaded_file.getbuffer()
-                )
-
-
-            st.sidebar.success(
-                f"{uploaded_file.name} "
-                "uploaded successfully!"
+            st.session_state.processed_upload.append(
+                filename
             )
 
-
-            # -----------------------------------------
-            # Index PDF
-            # -----------------------------------------
-
-            with st.spinner(
-                "Indexing PDF..."
-            ):
-
-                index_pdf(
-                    save_path
-                )
+            continue
 
 
-            # -----------------------------------------
-            # Reload models
-            # -----------------------------------------
+        # ---------------------------------------------
+        # Save file
+        # ---------------------------------------------
 
-            st.cache_resource.clear()
+        with open(
+            save_path,
+            "wb"
+        ) as f:
 
-            (
-                embedding_model,
-                retriever,
-                llm,
-                reranker
-            ) = load_models()
-
-
-            st.sidebar.success(
-                "✅ Vector Database Updated!"
+            f.write(
+                uploaded_file.getbuffer()
             )
 
 
-        st.session_state.processed_upload = (
-            uploaded_file.name
+        st.sidebar.success(
+            f"✅ {filename} uploaded successfully!"
         )
+
+
+        # ---------------------------------------------
+        # Index file
+        # ---------------------------------------------
+
+        with st.spinner(
+            f"Indexing {filename}..."
+        ):
+
+            index_file(
+                save_path
+            )
+
+
+        # ---------------------------------------------
+        # Mark as processed
+        # ---------------------------------------------
+
+        st.session_state.processed_upload.append(
+            filename
+        )
+
+
+    # ---------------------------------------------
+    # Reload models once after all files
+    # ---------------------------------------------
+
+    st.cache_resource.clear()
+
+    (
+        embedding_model,
+        retriever,
+        llm,
+        reranker
+    ) = load_models()
+
+
+    st.sidebar.success(
+        "✅ Vector Database Updated!"
+    )
 
 
 # -------------------------------------------------------
@@ -211,13 +235,13 @@ st.sidebar.subheader(
 )
 
 
-pdfs = get_uploaded_pdfs()
+pdfs = get_uploaded_files()
 
 
 if len(pdfs) == 0:
 
     st.sidebar.info(
-        "No PDFs uploaded."
+        "No files uploaded."
     )
 
 else:
@@ -243,7 +267,7 @@ else:
                 key=f"delete_{pdf}"
             ):
 
-                deleted_chunks = delete_pdf(
+                deleted_chunks = delete_file(
                     pdf,
                     embedding_model
                 )

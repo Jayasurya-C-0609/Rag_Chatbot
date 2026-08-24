@@ -4,21 +4,138 @@ import re
 from langchain_core.prompts import ChatPromptTemplate
 from retriever.reranker import remove_duplicate_documents
 from utils.source_utils import extract_sources
+from retriever.keyword_reranker import KeywordReranker
+from collections import defaultdict
+
+keyword_reranker = KeywordReranker()
+
+
+def debug_trace_target_document(
+    stage_name,
+    docs_with_scores,
+    target_page=13,
+    target_phrase="eligibility"
+):
+
+    print("\n" + "-" * 60)
+    print(f"[TRACE] {stage_name}")
+    print("-" * 60)
+
+    found = False
+
+    for rank, item in enumerate(
+        docs_with_scores,
+        start=1
+    ):
+
+        if isinstance(item, tuple):
+
+            doc = item[0]
+            score = item[1]
+
+        else:
+
+            doc = item
+            score = "N/A"
+
+        page = doc.metadata.get("page")
+
+        page_num = (
+            page + 1
+            if page is not None
+            else -1
+        )
+
+        content = doc.page_content.lower()
+
+        if (
+            page_num == target_page
+            or target_phrase.lower() in content
+        ):
+
+            found = True
+
+            print(
+                f"FOUND | Rank: {rank} | "
+                f"Page: {page_num} | "
+                f"Score: {score}"
+            )
+
+            print(
+                "Source:",
+                os.path.basename(
+                    doc.metadata.get(
+                        "source",
+                        "Unknown"
+                    )
+                )
+            )
+
+            print(
+                "Chunk ID:",
+                doc.metadata.get(
+                    "chunk_id",
+                    "N/A"
+                )
+            )
+
+            print(
+                "Preview:",
+                doc.page_content[:300]
+                .replace("\n", " ")
+            )
+
+    if not found:
+
+        print(
+            f"NOT FOUND | "
+            f"Page {target_page} / "
+            f"'{target_phrase}'"
+        )
 
 
 
 def clean_model_output(text):
 
+    # Remove Qwen thinking blocks
     text = re.sub(
         r"<think>.*?</think>",
         "",
         text,
-        flags=re.DOTALL
+        flags=re.DOTALL | re.IGNORECASE
+    )
+
+    # Remove escaped <br> variants
+    text = re.sub(
+        r"\\+<br\s*/?>",
+        " ",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # Remove normal <br> variants
+    text = re.sub(
+        r"<br\s*/?>",
+        " ",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # Remove excessive blank lines
+    text = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        text
+    )
+
+    # Remove excessive spaces
+    text = re.sub(
+        r"[ \t]{2,}",
+        " ",
+        text
     )
 
     return text.strip()
-
-
 # -------------------------------------------------
 # RAG prompt
 # -------------------------------------------------
@@ -28,17 +145,23 @@ def build_rag_prompt():
         """
 You are a document-based AI assistant.
 
-Answer the question using ONLY the provided context.
+Answer the user's question using ONLY the provided context.
 
 Rules:
 
-- Do not use outside knowledge.
-- Do not invent information.
-- Do not add facts that are not supported by the context.
-- Answer directly and clearly.
-- If the context partially answers the question, use only
-  the information available.
-- If the context contains no relevant information, reply exactly:
+1. Use only information explicitly present in the context.
+2. Do not use outside knowledge.
+3. Do not invent or assume information.
+4. If the answer is explicitly present in the context,
+   give that answer directly.
+5. For structured data such as CSV or tables, use the
+   corresponding row or record to answer the question.
+6. Ignore unrelated documents or passages in the context.
+7. Answer at a level of detail appropriate to the question.
+   For requests such as "explain clearly", provide the relevant
+   details from the context rather than giving only a brief summary.
+8. If the context does not contain enough information to answer,
+   reply exactly:
 
 "I don't know based on the provided documents."
 
@@ -54,19 +177,33 @@ Question:
 Answer:
 """
     )
-
-
 # -------------------------------------------------
 # Format retrieved documents
 # -------------------------------------------------
 def format_context(documents):
 
-    return "\n\n".join(
-        doc.page_content
-        for doc in documents
-    )
+    context = []
 
+    for doc in documents:
 
+        source = os.path.basename(
+            doc.metadata.get("source", "Unknown")
+        )
+
+        page = doc.metadata.get("page")
+
+        page = (
+            page + 1
+            if page is not None
+            else "N/A"
+        )
+
+        context.append(
+            f"[Source: {source} | Page: {page}]\n"
+            f"{doc.page_content}"
+        )
+
+    return "\n\n".join(context)
 # -------------------------------------------------
 # Query rewrite prompt
 # -------------------------------------------------
@@ -79,31 +216,26 @@ def build_query_rewrite_prompt():
                 """
 You rewrite user questions for document retrieval.
 
-Your goal is to create a standalone retrieval query.
+Create a standalone retrieval query when necessary.
 
 Rules:
 
-1. If the user's question is already standalone and clear,
+1. If the question is already clear and standalone,
    return it unchanged.
 
-2. Only rewrite the question when it contains a reference that
-   requires conversation history, such as:
-   "it", "this", "that", "they", "the previous model",
-   "how does it work", or similar references.
+2. Use conversation history only when the current question
+   depends on previous context.
 
-3. Preserve the original meaning of the question.
+3. If the question is independent, do not carry the previous
+   topic into the question.
 
-4. Do not expand abbreviations unnecessarily.
+4. Preserve the original meaning.
 
-5. Do not replace terms with their full names unless necessary
-   to resolve ambiguity.
+5. Do not add unnecessary information.
 
-6. Do not add information that is not present in the question
-   or conversation history.
+6. Do not answer the question.
 
-7. Do not answer the question.
-
-8. Return ONLY the standalone question.
+7. Return ONLY the rewritten question.
 
 Conversation History:
 {history}
@@ -158,15 +290,56 @@ def rewrite_query(question, chat_history, llm):
     return clean_model_output(response.content)
 
 
+
+def reciprocal_rank_fusion(results, k=60):
+
+    scores = defaultdict(float)
+    documents = {}
+
+    for result_list in results:
+
+        for rank, (doc, _) in enumerate(
+            result_list,
+            start=1
+        ):
+
+            doc_id = doc.metadata.get(
+                "chunk_id",
+                (
+                    doc.metadata.get("source", ""),
+                    doc.metadata.get("page"),
+                    doc.page_content[:100]
+                )
+            )
+
+            scores[doc_id] += 1 / (k + rank)
+            documents[doc_id] = doc
+
+    ranked = sorted(
+        scores.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    return [
+        (documents[doc_id], score)
+        for doc_id, score in ranked
+    ]
+
+
 # -------------------------------------------------
 # Main RAG pipeline
 # -------------------------------------------------
-def ask_question(question, chat_history, retriever, llm,reranker):
 
-    # -------------------------------------------------
-    # Rewrite follow-up question
-    # -------------------------------------------------
+def ask_question(
+    question,
+    chat_history,
+    retriever,
+    llm,
+    reranker
+):
 
+    # Query rewrite
     standalone_question = rewrite_query(
         question,
         chat_history,
@@ -177,11 +350,7 @@ def ask_question(question, chat_history, retriever, llm,reranker):
     print(f"Standalone: {standalone_question}")
 
     # -------------------------------------------------
-    # Retrieve documents
-    # -------------------------------------------------
-
-    # -------------------------------------------------
-    # Retrieve candidate documents
+    # Hybrid retrieval
     # -------------------------------------------------
 
     docs = retriever.invoke(
@@ -193,92 +362,109 @@ def ask_question(question, chat_history, retriever, llm,reranker):
     )
 
     # -------------------------------------------------
-    # Cross-encoder reranking
+    # Cross Encoder
     # -------------------------------------------------
 
-    reranked_results = reranker.rerank(
+    cross_results = reranker.rerank(
         standalone_question,
         docs,
-        top_k=4
+        top_k=15,
+        score_threshold=-3.0
     )
 
     # -------------------------------------------------
-    # Preserve top MMR candidates
+    # Keyword Reranker
+    # -------------------------------------------------
+
+    keyword_results = keyword_reranker.rerank(
+        standalone_question,
+        docs,
+        top_k=10
+    )
+
+    # -------------------------------------------------
+    # MMR candidates
     # -------------------------------------------------
 
     mmr_results = [
         (doc, 0.0)
-        for doc in docs[:4]
+        for doc in docs[:8]
     ]
 
     # -------------------------------------------------
-    # Combine both
+    # RRF Fusion
     # -------------------------------------------------
 
-    combined_results = (
-        reranked_results +
-        mmr_results
+    fused_results = reciprocal_rank_fusion(
+        [
+            cross_results,
+            keyword_results,
+            mmr_results
+        ]
     )
 
     # -------------------------------------------------
-    # Remove duplicate chunks
+    # Final top 8
     # -------------------------------------------------
 
-    combined_results = remove_duplicate_documents(
-        combined_results
-    )
+    selected = fused_results[:12]
 
-    # -------------------------------------------------
-    # Final top K
-    # -------------------------------------------------
-
-    combined_results = combined_results[:8]
-
-    
     reranked_docs = [
         doc
-        for doc, score in combined_results
+        for doc, score in selected
     ]
 
+    # -------------------------------------------------
+    # Debug
+    # -------------------------------------------------
 
     print("\n" + "=" * 60)
-    print("HYBRID RETRIEVAL RESULTS")
+    print("FINAL RETRIEVAL SELECTION")
     print("=" * 60)
 
     for i, (doc, score) in enumerate(
-        reranked_results,
+        selected,
         start=1
     ):
+
+        page = doc.metadata.get("page")
+
+        page = (
+            page + 1
+            if page is not None
+            else "N/A"
+        )
 
         print(
             i,
             os.path.basename(
-                doc.metadata.get("source", "")
+                doc.metadata.get(
+                    "source",
+                    "Unknown"
+                )
             ),
-            "Page:",
-            doc.metadata.get("page", 0) + 1,
-            "Score:",
-            float(score)
+            "| Page:",
+            page,
+            "| RRF:",
+            round(float(score), 5)
         )
-    print(
-        f"Reranked chunks: {len(reranked_docs)}"
+
+    # -------------------------------------------------
+    # Context
+    # -------------------------------------------------
+
+    context = format_context(
+        reranked_docs
     )
 
-
-    # -------------------------------------------------
-    # Build context
-    # -------------------------------------------------
-
-    context = format_context(reranked_docs)
-
-
     print("\n" + "=" * 60)
-    print("FINAL CONTEXT SENT TO LLM")
+    print("FINAL CONTEXT")
     print("=" * 60)
 
     print(context)
+
     # -------------------------------------------------
-    # Build prompt
+    # Prompt
     # -------------------------------------------------
 
     prompt = build_rag_prompt()
@@ -299,19 +485,24 @@ def ask_question(question, chat_history, retriever, llm,reranker):
     )
 
     # -------------------------------------------------
-    # Stream response
+    # Generate answer
     # -------------------------------------------------
+
+    full_response = ""
 
     for chunk in llm.stream(messages):
 
-        if isinstance(chunk.content, str):
+        if isinstance(
+            chunk.content,
+            str
+        ):
 
-            yield {
-                "type": "text",
-                "content": chunk.content
-            }
+            full_response += chunk.content
 
-        elif isinstance(chunk.content, list):
+        elif isinstance(
+            chunk.content,
+            list
+        ):
 
             for item in chunk.content:
 
@@ -320,18 +511,27 @@ def ask_question(question, chat_history, retriever, llm,reranker):
                     and item.get("type") == "text"
                 ):
 
-                    yield {
-                        "type": "text",
-                        "content": item.get("text", "")
-                    }
+                    full_response += item.get(
+                        "text",
+                        ""
+                    )
+
+    full_response = clean_model_output(
+        full_response
+    )
+
+    yield {
+        "type": "text",
+        "content": full_response
+    }
 
     # -------------------------------------------------
     # Sources
     # -------------------------------------------------
 
-    sources = extract_sources(reranked_docs)
-
     yield {
         "type": "sources",
-        "content": sources
+        "content": extract_sources(
+            reranked_docs
+        )
     }

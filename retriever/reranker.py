@@ -13,7 +13,7 @@ class CrossEncoderReranker:
         self,
         query,
         documents,
-        top_k=8,
+        top_k=4,
         score_threshold=-1.0
     ):
 
@@ -33,9 +33,9 @@ class CrossEncoderReranker:
             reverse=True
         )
 
-        # ---------------------------------------------
-        # Remove low-scoring documents
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # Remove low scoring documents
+        # -------------------------------------------------
 
         ranked = [
             (doc, float(score))
@@ -43,19 +43,23 @@ class CrossEncoderReranker:
             if float(score) >= score_threshold
         ]
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # Preserve page diversity
-        # ---------------------------------------------
+        # -------------------------------------------------
 
         selected = []
         seen_pages = set()
 
-        # First pass: one chunk per page
         for doc, score in ranked:
 
-            page = doc.metadata.get("page", -1)
+            page = doc.metadata.get("page")
 
-            if page not in seen_pages:
+            if page is None:
+                selected.append(
+                    (doc, score)
+                )
+
+            elif page not in seen_pages:
 
                 selected.append(
                     (doc, score)
@@ -66,9 +70,9 @@ class CrossEncoderReranker:
             if len(selected) >= top_k:
                 break
 
-        # ---------------------------------------------
-        # Second pass: fill remaining slots
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # Fill remaining slots
+        # -------------------------------------------------
 
         if len(selected) < top_k:
 
@@ -92,7 +96,9 @@ class CrossEncoderReranker:
         return selected
 
 
-def remove_duplicate_documents(ranked_results):
+def remove_duplicate_documents(
+    ranked_results
+):
 
     seen = set()
     filtered = []

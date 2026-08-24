@@ -1,22 +1,97 @@
+import os
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 def split_documents(documents):
 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
         chunk_overlap=100,
-        length_function=len
+        separators=[
+            "\n\n",
+            "\n",
+            ". ",
+            " ",
+            ""
+        ]
     )
 
-    chunks = text_splitter.split_documents(documents)
+    final_chunks = []
 
-    for i, chunk in enumerate(chunks):
+    for document_index, document in enumerate(documents):
 
-        source = chunk.metadata["source"]
+        source = document.metadata.get(
+            "source",
+            "unknown"
+        )
 
-        page = chunk.metadata["page"]
+        filename = os.path.basename(source)
 
-        chunk.metadata["chunk_id"] = f"{source}_{page}_{i}"
+        page = document.metadata.get(
+            "page",
+            None
+        )
 
-    return chunks
+        page_label = document.metadata.get(
+            "page_label",
+            None
+        )
+
+        file_type = document.metadata.get(
+            "file_type",
+            "unknown"
+        )
+
+        # ---------------------------------------------
+        # Split one document at a time
+        # ---------------------------------------------
+
+        page_chunks = splitter.split_documents(
+            [document]
+        )
+
+        for chunk_index, chunk in enumerate(
+            page_chunks
+        ):
+
+            # -----------------------------------------
+            # PDF / paginated document
+            # -----------------------------------------
+
+            if page is not None:
+
+                chunk_id = (
+                    f"{filename}"
+                    f"_page_{page}"
+                    f"_chunk_{chunk_index}"
+                )
+
+            # -----------------------------------------
+            # CSV / TXT / DOCX / XLSX / PPTX
+            # -----------------------------------------
+
+            else:
+
+                chunk_id = (
+                    f"{filename}"
+                    f"_doc_{document_index}"
+                    f"_chunk_{chunk_index}"
+                )
+
+            chunk.metadata = {
+                **document.metadata,
+                **chunk.metadata,
+
+                "chunk_id": chunk_id,
+
+                "page": page,
+
+                "page_label": page_label,
+
+                "file_type": file_type
+            }
+
+            final_chunks.append(chunk)
+
+    return final_chunks

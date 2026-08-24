@@ -5,15 +5,25 @@ langchain-huggingface
 langchain-text-splitters
 langchain-chroma
 langchain-groq
+
 sentence-transformers
 transformers
 torch
 chromadb
+
 pypdf
 pymupdf
+
 streamlit
 python-dotenv
 tiktoken
+
+# Multiple document formats
+unstructured
+python-docx
+openpyxl
+python-pptx
+xlrd
 
 # RAG evaluation
 ragas

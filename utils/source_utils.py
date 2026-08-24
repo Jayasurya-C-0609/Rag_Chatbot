@@ -1,6 +1,5 @@
 import os
 
-
 def extract_sources(documents):
 
     sources = []
@@ -8,24 +7,27 @@ def extract_sources(documents):
     for doc in documents:
 
         source = os.path.basename(
-            doc.metadata.get("source", "Unknown")
+            doc.metadata.get(
+                "source",
+                "Unknown"
+            )
         )
 
         page = doc.metadata.get("page")
 
-        if page is not None:
-            page = page + 1
-
         source_info = {
             "file": source,
-            "page": page
+            "page": (
+                page + 1
+                if isinstance(page, int)
+                else None
+            )
         }
 
         if source_info not in sources:
             sources.append(source_info)
 
     return sources
-
 def group_sources(sources):
 
     grouped = {}

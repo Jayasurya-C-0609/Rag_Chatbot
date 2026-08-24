@@ -2,8 +2,8 @@ from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers import EnsembleRetriever
 
 from vectordb.chroma_db import load_vector_store
-from loaders.pdf_loader import load_pdfs
 from preprocess.splitter import split_documents
+from loaders.file_loader import load_files
 
 
 def load_hybrid_retriever(embedding_model):
@@ -19,32 +19,42 @@ def load_hybrid_retriever(embedding_model):
     semantic_retriever = vector_store.as_retriever(
         search_type="mmr",
         search_kwargs={
-            "k": 10,
-            "fetch_k": 40,
-            "lambda_mult": 0.75
+            "k": 50,
+            "fetch_k": 100,
+            "lambda_mult": 0.70
         }
     )
 
     # -------------------------------------------------
-    # BM25 Retriever
+    # Load documents for BM25
     # -------------------------------------------------
 
-    documents = load_pdfs(
+    documents = load_files(
         "uploads"
     )
 
+    # IMPORTANT:
+    # Use the SAME splitter as indexing
     chunks = split_documents(
         documents
     )
+
+    print(
+        f"BM25 chunks: {len(chunks)}"
+    )
+
+    # -------------------------------------------------
+    # BM25
+    # -------------------------------------------------
 
     bm25_retriever = BM25Retriever.from_documents(
         chunks
     )
 
-    bm25_retriever.k = 8
+    bm25_retriever.k = 50
 
     # -------------------------------------------------
-    # Hybrid Retriever
+    # Hybrid
     # -------------------------------------------------
 
     hybrid = EnsembleRetriever(
@@ -53,8 +63,8 @@ def load_hybrid_retriever(embedding_model):
             bm25_retriever
         ],
         weights=[
-            0.6,
-            0.4
+            0.45,
+            0.55
         ]
     )
 

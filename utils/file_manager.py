@@ -1,25 +1,27 @@
 import os
 
 from vectordb.delete_documents import delete_document
+from config import UPLOAD_FOLDER
 
-UPLOAD_FOLDER = "uploads"
 
-
-def get_uploaded_pdfs():
+def get_uploaded_files():
 
     if not os.path.exists(UPLOAD_FOLDER):
         return []
 
-    pdfs = [
-        file
-        for file in os.listdir(UPLOAD_FOLDER)
-        if file.endswith(".pdf")
+    return [
+        filename
+        for filename in os.listdir(UPLOAD_FOLDER)
+        if os.path.isfile(
+            os.path.join(
+                UPLOAD_FOLDER,
+                filename
+            )
+        )
     ]
 
-    return sorted(pdfs)
 
-
-def delete_pdf(filename, embedding_model):
+def delete_file(filename, embedding_model):
 
     # Delete vectors from ChromaDB
     deleted_chunks = delete_document(
@@ -27,7 +29,7 @@ def delete_pdf(filename, embedding_model):
         embedding_model
     )
 
-    # Delete PDF file
+    # Delete uploaded file
     path = os.path.join(
         UPLOAD_FOLDER,
         filename
