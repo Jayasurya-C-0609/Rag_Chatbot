@@ -1,293 +1,225 @@
-# PDF RAG Chatbot
+# 📚 RAG Chatbot
 
-## Overview
-
-PDF RAG Chatbot is a Streamlit application for asking questions about uploaded PDF documents. It uses Retrieval-Augmented Generation (RAG): relevant text is retrieved from the uploaded documents and supplied to a language model before an answer is generated.
-
-The application prompt instructs the model to use only the retrieved context. When the documents do not contain enough information, the expected response is `I don't know based on the provided documents.` The chatbot is therefore intended to answer from the indexed PDFs, not to act as a general-purpose source of the model's outside knowledge.
+A Streamlit chatbot that lets users upload documents and ask questions about their contents. It uses Retrieval-Augmented Generation to retrieve, rank, and cite relevant document chunks before generating an answer.
 
 ## Features
 
-- Upload PDF files through the Streamlit sidebar.
-- Extract PDF pages with `PyPDFLoader`.
-- Split pages into 1,000-character chunks with 100-character overlap.
-- Generate embeddings with `sentence-transformers/all-MiniLM-L6-v2`.
-- Store chunks and metadata in ChromaDB.
-- Combine semantic MMR retrieval with BM25 lexical retrieval.
-- Rerank candidates with `cross-encoder/ms-marco-MiniLM-L-6-v2`.
-- Rewrite follow-up questions using conversation history.
-- Stream document-grounded answers through the configured LLM.
-- Display source filenames and one-based page references.
-- Add, delete, rebuild, and clear the local document index from the UI.
-- Run saved-answer generation and RAGAS-based evaluation scripts.
-- Support Ollama for the separate local evaluation path and experimental local LLM configuration.
+- Upload PDF, TXT, CSV, XLS, XLSX, DOCX, and PPTX files.
+- Index uploaded files into a persistent ChromaDB vector store.
+- Combine semantic and lexical retrieval for stronger search coverage.
+- Rerank results with a Cross-Encoder and keyword matching.
+- Preserve diverse candidates with Maximal Marginal Relevance (MMR).
+- Rewrite follow-up questions using conversation history when needed.
+- Generate answers constrained to retrieved document context.
+- Display source filenames and available page numbers.
+- Add files, delete files, rebuild the index, and manage uploaded documents from the UI.
+- Evaluate retrieval and answer quality with custom evaluation code and RAGAS support.
+
+## Supported File Formats
+
+| Extension | Loader | Page metadata |
+| --- | --- | --- |
+| PDF | `PyPDFLoader` | Usually available |
+| TXT | `TextLoader` | May be unavailable |
+| CSV | `CSVLoader` | May be unavailable |
+| XLS, XLSX | `UnstructuredExcelLoader` | May be unavailable |
+| DOCX | `Docx2txtLoader` | May be unavailable |
+| PPTX | `UnstructuredPowerPointLoader` | May be unavailable |
+
+Page numbers depend on the source loader. Source filenames are displayed when available, and documents without page metadata may show no page number.
 
 ## RAG Architecture
 
 ```mermaid
 flowchart TD
-    A[PDF upload] --> B[Save under uploads/]
-    B --> C[PyPDFLoader page extraction]
-    C --> D[RecursiveCharacterTextSplitter<br/>1000 chars, 100 overlap]
-    D --> E[HuggingFace embeddings]
-    E --> F[Chroma vector store]
-    Q[User question] --> H{Has chat history?}
-    H -->|Yes| I[Rewrite as standalone query]
-    H -->|No| J[Use question]
-    I --> K[Hybrid retrieval]
-    J --> K
-    K --> L[Chroma MMR + BM25]
-    L --> M[Cross-encoder reranking]
-    M --> N[Combine reranked and top MMR results]
-    N --> O[Remove duplicate chunks<br/>keep up to 8]
-    O --> P[Document-only prompt]
-    P --> R[Configured LLM]
-    R --> S[Streamed answer + file/page sources]
+    A[Upload document] --> B[Unified file loader]
+    B --> C[Split into chunks]
+    C --> D[Embeddings]
+    D --> E[(ChromaDB)]
+    Q[User question] --> R[Conversation-aware query rewriting]
+    R --> H[Hybrid retrieval]
+    H --> H1[Chroma semantic retrieval with MMR]
+    H --> H2[BM25 lexical retrieval]
+    H1 --> CAND[Candidate documents]
+    H2 --> CAND
+    CAND --> X[Cross-Encoder reranking]
+    X --> K[Keyword reranking]
+    K --> M[MMR candidates and diversity]
+    M --> F[Reciprocal Rank Fusion]
+    F --> U[Remove duplicate chunks]
+    U --> CTX[Final context]
+    CTX --> L[Document-grounded prompt]
+    L --> G[Groq LLM via llm.invoke]
+    G --> OUT[Answer and available sources/pages]
 ```
 
-When a new PDF is uploaded, its chunks are added to the local Chroma store. The **Rebuild Database** action reloads all PDFs in `uploads/`, recreates the collection, and reindexes them.
+### Processing and Indexing
 
-## Retrieval System
+The unified loader in `loaders/file_loader.py` selects a format-specific LangChain loader. Documents are split by the project splitter into 500-character chunks with 100-character overlap. Available metadata, including source, page, file type, and generated chunk ID, is preserved on each chunk. Embeddings are stored in ChromaDB for semantic retrieval.
 
-The active retriever in `retriever/hybrid_retriever.py` is an ensemble of:
+### Question Flow
 
-| Retriever | Configuration |
+The question is rewritten into a standalone retrieval query when conversation history is needed. The query then passes through hybrid retrieval, ranking, fusion, duplicate removal, context construction, and answer generation. This separates search-oriented query preparation from the final response prompt.
+
+## How Retrieval Works
+
+The active retriever combines:
+
+1. **Semantic retrieval:** ChromaDB uses embedding similarity with MMR. MMR balances relevance with diversity among the selected chunks.
+2. **BM25 retrieval:** BM25 searches the currently loaded and split documents using lexical term matching.
+3. **Candidate ranking:** A Cross-Encoder scores semantic relevance, while keyword reranking preserves exact terminology and matches.
+4. **Fusion:** RRF combines the Cross-Encoder, keyword, and MMR ranking signals. Chunks are identified and duplicates are removed before the final context is built.
+
+Hybrid retrieval is useful because semantic search handles conceptual similarity, BM25 helps with exact keywords, Cross-Encoder reranking improves ordering, keyword reranking protects important terminology, MMR maintains variety, and RRF combines these complementary signals.
+
+## Question Rewriting
+
+The `rewrite_query()` function returns the original question unchanged when there is no chat history. With history, the LLM rewrites follow-up questions into standalone retrieval questions when necessary. Questions that are already clear and standalone should remain unchanged.
+
+The rewrite prompt preserves the original meaning, uses history only when relevant, and instructs the LLM to return only a rewritten question. It must not answer the question or invent information.
+
+## Answer Generation
+
+The active LLM provider is Groq, configured through `ChatGroq`. The final response is generated with `llm.invoke(messages)`, so the active answer path is not described as streaming.
+
+The answer prompt instructs the model to use only the retrieved context, ignore outside knowledge, and avoid inventing or assuming information. When the context does not contain enough information, the exact fallback response is:
+
+> I don't know based on the provided documents.
+
+## Source Attribution
+
+Retrieved chunks retain source metadata. The application extracts source filenames and page values from the final selected documents and presents them with the answer. Page values are converted from zero-based metadata to user-friendly one-based page numbers when page metadata exists. Formats such as CSV may have `page=None`, so a page number is not guaranteed for every file.
+
+## Tech Stack
+
+| Area | Technologies |
 | --- | --- |
-| Chroma semantic retriever | MMR, `k=10`, `fetch_k=40`, `lambda_mult=0.75` |
-| BM25 lexical retriever | `k=8`, built from the freshly loaded and split PDFs |
-| Ensemble weights | Semantic `0.6`, BM25 `0.4` |
-
-The combined candidates are scored by `cross-encoder/ms-marco-MiniLM-L-6-v2`. In the application query path, reranking requests `top_k=4` with the default score threshold of `-1.0`. The result is combined with the first four MMR candidates, duplicate chunk text is removed, and up to eight chunks are sent to the LLM. The reranker first prefers one selected chunk per page to preserve page diversity, then fills remaining slots by score.
-
-The separate `retriever/retriever.py` module defines an MMR retriever with `k=5` and `fetch_k=25`; it is not used by the Streamlit application.
-
-## LLM
-
-The active application LLM is `ChatGroq` from `langchain-groq`, configured in `llm/llm.py` with:
-
-- Model: `openai/gpt-oss-20b`
-- Temperature: `0`
-- Credential: `GROQ_API_KEY`
-
-`llm/gemini.py` contains an alternative `ChatGoogleGenerativeAI` loader using `GOOGLE_API_KEY`, but it is not imported by the active application. An Ollama `ChatOllama` configuration for `qwen3.5:9b` is present as commented code in `llm/llm.py`.
-
-## Vector Database
-
-Chroma is used as the persistent vector database through `langchain-chroma`. Each split document is stored with its page metadata and a generated `chunk_id`. The configured collection name is `rag_documents`, and the persistence directory is `chroma_db`.
-
-The application also maintains a BM25 index in memory from the PDFs in `uploads/` when the hybrid retriever is loaded. Chroma provides the persistent semantic index; BM25 is rebuilt from the current upload directory.
-
-The collection name is explicitly set to `rag_documents` when a store is created, but the current load and delete helpers do not pass that name consistently. This is a current implementation caveat to review when moving beyond local development.
-
-## Evaluation
-
-The evaluation dataset in `evaluation/test_questions.py` contains eight answerable and two unanswerable questions. The checked-in `evaluation/evaluation_results.json` contains generated answers, references, and retrieved contexts for those questions; it does not contain aggregate metric scores.
-
-The RAGAS script in `evaluation/ragas_evaluation.py` calculates:
-
-- Context Precision
-- Context Recall
-- Faithfulness
-- Answer Relevance
-- Answer Correctness
-- Abstention Accuracy
-
-The custom evaluator in `evaluation/evaluator.py` also defines retrieval metrics (`Recall@12`, `Precision@4`, and reciprocal rank/MRR), binary context relevance, binary faithfulness, binary answer relevance, and abstention evaluation. Its current runner expects `expected_files` fields that are not present in the current `test_questions.py` entries, so that script may require dataset alignment before it can run successfully.
-
-No aggregate benchmark scores are claimed here because they are not stored in the current repository artifacts. Any scores printed by a future evaluation run should be labeled as development-set results, not production benchmarks.
-
-## Ollama Support
-
-Ollama is used by the RAGAS evaluation path through its OpenAI-compatible endpoint at `http://localhost:11434/v1`. The RAGAS script uses `qwen2.5:3b` as its evaluation LLM and configures the same MiniLM embedding model on CUDA. The standalone smoke test and `Modelfile` reference `qwen3.5:9b`; this model is not the active application LLM.
-
-Ollama models are installed separately and are not included in `requirements.txt`.
+| Language and UI | Python, Streamlit |
+| RAG framework | LangChain |
+| Document loading | PyPDF, PyMuPDF, Unstructured, python-docx, openpyxl, python-pptx, xlrd |
+| Embeddings | Hugging Face embeddings, Sentence Transformers |
+| Retrieval | ChromaDB with MMR, BM25 |
+| Reranking | Sentence Transformers Cross-Encoder, keyword reranking, RRF |
+| LLM | Groq through `langchain-groq` |
+| Evaluation | RAGAS and custom evaluation code |
 
 ## Project Structure
 
 ```text
-.
-├── app.py                         # Streamlit UI and chat workflow
-├── config.py                      # Model, Chroma path, and collection settings
-├── index.py                       # PDF indexing and full database rebuild
-├── Modelfile                      # Ollama qwen3.5:9b model parameters
-├── requirements.txt               # Python dependencies
-├── test_ollama.py                 # Ollama/Groq provider smoke test code
-├── test_ragas_ollama.py           # RAGAS plus Ollama initialization check
+rag-chatbot/
+├── app.py
+├── config.py
+├── index.py
+├── Modelfile
+├── requirements.txt
+├── test_ollama.py
+├── test_ragas_ollama.py
 ├── embeddings/
-│   └── embedding_model.py         # Hugging Face embedding loader
+│   └── embedding_model.py
 ├── evaluation/
-│   ├── evaluator.py                # Custom retrieval/generation metrics
-│   ├── evaluation_results.json     # Saved answers and retrieved contexts
-│   ├── ragas_evaluation.py         # RAGAS evaluation from saved results
-│   ├── run_evaluation.py           # Custom evaluation runner
-│   ├── run_rag_test.py             # Generate saved RAG outputs
-│   └── test_questions.py           # Evaluation questions and references
+│   ├── error_analysis.py
+│   ├── evaluation_results.json
+│   ├── evaluator.py
+│   ├── ragas_evaluation.py
+│   ├── retrieval_debug.py
+│   ├── run_evaluation.py
+│   ├── run_rag_test.py
+│   └── test_questions.py
 ├── llm/
-│   ├── llm.py                      # Active Groq LLM loader
-│   └── gemini.py                   # Alternative Gemini loader
+│   └── llm.py
 ├── loaders/
-│   └── pdf_loader.py               # PDF page loading
+│   ├── file_loader.py
+│   └── pdf_loader.py
 ├── preprocess/
-│   └── splitter.py                 # Text chunking and chunk metadata
-├── prompts/                        # Currently empty
+│   └── splitter.py
 ├── rag/
-│   └── rag_chain.py                # Query rewriting, prompting, and streaming
+│   └── rag_chain.py
 ├── retriever/
-│   ├── hybrid_retriever.py         # Chroma MMR and BM25 ensemble
-│   ├── reranker.py                 # Cross-encoder reranking and deduplication
-│   └── retriever.py                # Alternate standalone MMR retriever
+│   ├── hybrid_retriever.py
+│   ├── keyword_reranker.py
+│   ├── reranker.py
+│   └── retriever.py
 ├── utils/
-│   ├── file_manager.py             # Uploaded PDF management
-│   ├── greetings.py                # Local greeting handling
-│   └── source_utils.py             # Source extraction and grouping
+│   ├── __init__.py
+│   ├── file_manager.py
+│   ├── greetings.py
+│   └── source_utils.py
 └── vectordb/
-    ├── chroma_db.py                # Chroma load/create/add operations
-    └── delete_documents.py         # Delete chunks belonging to a PDF
+    ├── chroma_db.py
+    └── delete_documents.py
 ```
 
-Runtime directories `uploads/` and `chroma_db/` are created or used locally and are ignored by Git. The current application uses those paths directly; the `CHROMA_DB` and `DATA_FOLDER` variables in `.env.example` are not currently read by the source code.
+`uploads/` and `chroma_db/` are runtime directories used for uploaded documents and generated vector data. They are present locally but should remain untracked.
 
 ## Installation
 
-These commands are suitable for Windows PowerShell:
+Run these commands in Windows PowerShell:
 
 ```powershell
 git clone https://github.com/Jayasurya-C-0609/Rag_Chatbot.git
 cd Rag_Chatbot
-
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-
-Copy-Item .env.example .env
+New-Item -Path .env -ItemType File -Force
+notepad .env
 ```
 
-Edit `.env` and set the required provider credential:
+Add the required Groq credential to `.env` using a placeholder during setup:
 
 ```dotenv
 GROQ_API_KEY=your_groq_api_key
 ```
 
-`GOOGLE_API_KEY` is used only by the alternative Gemini loader. `CHROMA_DB` and `DATA_FOLDER` are present as configuration examples but are currently unused; the application uses `chroma_db` and `uploads` relative to the working directory.
-
-The first run may download the embedding and cross-encoder models from Hugging Face. Add PDFs through the application after setup.
-
-## Ollama Setup
-
-Install Ollama separately from [ollama.com](https://ollama.com), then start its local service. Pull the models used by the repository as needed:
-
-```powershell
-ollama pull qwen2.5:3b
-ollama pull qwen3.5:9b
-ollama list
-```
-
-Verify the service is responding:
-
-```powershell
-Invoke-RestMethod http://localhost:11434/api/tags
-```
-
-The active Streamlit application uses Groq, not Ollama. Ollama is currently used by `evaluation/ragas_evaluation.py`; that script expects the local endpoint and the `qwen2.5:3b` model. The `qwen3.5:9b` model is referenced by `test_ragas_ollama.py`, `test_ollama.py`, and `Modelfile`.
-
-## Running the Application
-
-From the repository root with the virtual environment activated:
+Then start the application:
 
 ```powershell
 streamlit run app.py
 ```
 
-Use the sidebar to upload PDFs, inspect uploaded files, delete documents, rebuild the index, or clear the local Chroma directory. Ask questions in the chat area to receive a streamed answer and extracted file/page sources.
-
-## Evaluation Commands
-
-Generate answers and retrieved contexts for the configured dataset:
-
-```powershell
-python evaluation/run_rag_test.py
-```
-
-Run the custom evaluator:
-
-```powershell
-python evaluation/run_evaluation.py
-```
-
-This runner currently expects `expected_files` in each test case, while the checked-in dataset does not define that field.
-
-Run RAGAS evaluation against the saved results:
-
-```powershell
-python evaluation/ragas_evaluation.py
-```
-
-The RAGAS command requires Ollama serving `qwen2.5:3b` at `localhost:11434` and the configured CUDA-capable embedding environment. The provider checks can be run with:
-
-```powershell
-python test_ollama.py
-python test_ragas_ollama.py
-```
+The first run may download embedding and reranking models from Hugging Face.
 
 ## Environment Variables
 
-| Variable | Purpose | Current use |
+| Variable | Purpose | Required |
 | --- | --- | --- |
-| `GROQ_API_KEY` | Groq authentication for the active application LLM | Required by `llm/llm.py` |
-| `GOOGLE_API_KEY` | Google authentication for the alternative Gemini loader | Used only by `llm/gemini.py` |
-| `CHROMA_DB` | Example Chroma directory setting | Defined in `.env.example`; currently unused |
-| `DATA_FOLDER` | Example document directory setting | Defined in `.env.example`; currently unused |
+| `GROQ_API_KEY` | Authenticates the active Groq LLM | Yes |
 
-Never commit `.env` or real credentials. The repository ignores `.env` through `.gitignore`.
+## Usage
 
-## Current Progress
+1. Start the Streamlit application.
+2. Upload one or more supported documents from the sidebar.
+3. Wait while each document is loaded, split, embedded, and indexed.
+4. Ask a question about the uploaded content.
+5. Review the document-grounded answer.
+6. Review the source filenames and page numbers when available.
 
-The current implementation includes PDF ingestion, page extraction, preprocessing and chunking, local embeddings, Chroma persistence, hybrid retrieval, cross-encoder reranking, document-grounded answer generation, source/page extraction, conversation-aware query rewriting, Ollama-based evaluation support, a RAGAS evaluation path, an evaluation dataset, and saved evaluation outputs. Retrieval settings such as candidate counts, reranking size, score threshold, and page diversity are explicitly configured in the source.
+## Evaluation
 
-## Evaluation Optimization Journey
+The repository includes a test question set, saved evaluation results, custom evaluation functions, and a RAGAS evaluation script. Available evaluation code covers retrieval behavior and answer quality, including context precision, context recall, faithfulness, answer relevance, answer correctness, and abstention behavior. Evaluation support is intended for development and comparison; this README does not claim benchmark scores.
 
-The repository contains code for comparing retrieval before and after reranking and for evaluating answer grounding and abstention. This supports iterative tuning of retrieval and generation. The checked-in results currently provide per-question answers and contexts, but no verified aggregate score table; results from subsequent runs may change as the implementation, uploaded documents, models, and evaluation dataset evolve.
+## .gitignore / Security
+
+Do not commit `.env` files, API keys, uploaded documents, ChromaDB files, model caches, virtual environments, `__pycache__` directories, or other secrets. The repository `.gitignore` contains rules for these local and generated artifacts.
 
 ## Limitations
 
-- The active application requires a valid Groq configuration; the local Ollama path is not the default application provider.
-- Local Ollama evaluation depends on the Ollama service, installed models, available hardware, and the CUDA configuration used by RAGAS embeddings.
-- BM25 candidates are rebuilt from uploaded PDFs when the hybrid retriever loads, which can increase startup time.
-- Retrieval quality depends on PDF extraction, chunk size/overlap, embedding quality, candidate settings, and reranking.
-- The evaluation set is small and contains ten questions.
-- Evaluation scripts make live model calls and are not integrated with a test runner.
-- The custom evaluation runner currently has a schema mismatch with the checked-in question dataset.
-- Chroma collection naming is not passed consistently across create, load, and delete paths.
+- Retrieval quality depends on document extraction, chunking, embeddings, and ranking settings.
+- Answers depend on the context retrieved for the question.
+- Some file formats may not provide page metadata.
+- External LLM/API access is required for the active Groq provider.
 
 ## Future Improvements
 
-- Align the custom evaluation schema and add automated regression checks.
-- Expand the evaluation dataset and retain aggregate results with run metadata.
-- Improve retrieval precision, answer faithfulness, and source citation handling.
-- Experiment with chunking strategies and embedding models.
-- Tune hybrid weights, MMR settings, and cross-encoder reranking.
-- Add observability and structured logging.
-- Improve deployment and provider configuration so the active LLM can be selected cleanly.
+- Tune hybrid retrieval, reranking, and chunking settings.
+- Add more precise document and metadata filtering.
+- Expand evaluation and regression testing.
+- Improve the Streamlit UI and interaction flow.
+- Add deployment support and clearer provider configuration.
+- Extend document processing for complex layouts and tables.
 
-## Tech Stack
+## Author
 
-| Area | Technologies used in the repository |
-| --- | --- |
-| UI | Streamlit |
-| Application framework | Python, LangChain |
-| PDF processing | PyPDF, PyMuPDF, `PyPDFLoader` |
-| Embeddings and reranking | Sentence Transformers, Hugging Face embeddings, Cross-Encoder |
-| Vector search | ChromaDB, `langchain-chroma` |
-| Lexical search | BM25 via LangChain community retrievers |
-| LLM providers | Groq via `ChatGroq`; optional Gemini loader; Ollama evaluation path |
-| Evaluation | RAGAS, custom Python evaluation functions |
+**Jayasurya C**
 
-## License
-
-No license file is currently included. A license can be added later.
-
-## Author / Project Information
-
-Repository: [Jayasurya-C-0609/Rag_Chatbot](https://github.com/Jayasurya-C-0609/Rag_Chatbot)
-
-The repository is an active development project and is not presented as production-ready.
+GitHub: [Jayasurya-C-0609/Rag_Chatbot](https://github.com/Jayasurya-C-0609/Rag_Chatbot)
