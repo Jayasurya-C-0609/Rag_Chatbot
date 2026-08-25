@@ -9,7 +9,9 @@ langchain-groq
 sentence-transformers
 transformers
 torch
+torchvision
 chromadb
+rank-bm25
 
 pypdf
 pymupdf
@@ -24,6 +26,7 @@ python-docx
 openpyxl
 python-pptx
 xlrd
+spacy
 
 # RAG evaluation
 ragas
