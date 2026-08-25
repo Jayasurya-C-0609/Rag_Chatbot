@@ -318,6 +318,17 @@ section[data-testid="stSidebar"] .stButton > button:hover svg {
     border-radius: 12px !important;
 }
 
+/* Chat input text */
+[data-testid="stChatInput"] textarea {
+    font-size: 16px !important;
+}
+
+/* Chat input placeholder */
+[data-testid="stChatInput"] textarea::placeholder {
+    font-size: 16px !important;
+    color: #64748B !important;
+}
+
 
 /* ================= DIVIDER ================= */
 

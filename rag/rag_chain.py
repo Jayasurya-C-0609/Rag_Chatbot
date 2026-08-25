@@ -319,10 +319,10 @@ def ask_question(
     )
 
     # -------------------------------------------------
-    # Final top 10
+    # Final top 12
     # -------------------------------------------------
 
-    selected = fused_results[:10]
+    selected = fused_results[:12]
 
     reranked_docs = [
         doc

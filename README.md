@@ -1,19 +1,20 @@
 # 📚 RAG Chatbot
 
-A Streamlit chatbot that lets users upload documents and ask questions about their contents. It uses Retrieval-Augmented Generation to retrieve, rank, and cite relevant document chunks before generating an answer.
+A Streamlit chatbot for uploading documents and asking questions about their contents. The application retrieves relevant chunks, ranks them, and generates an answer from the retrieved context through Groq.
 
 ## Features
 
-- Upload PDF, TXT, CSV, XLS, XLSX, DOCX, and PPTX files.
-- Index uploaded files into a persistent ChromaDB vector store.
-- Combine semantic and lexical retrieval for stronger search coverage.
-- Rerank results with a Cross-Encoder and keyword matching.
-- Preserve diverse candidates with Maximal Marginal Relevance (MMR).
+- Upload PDF, TXT, CSV, XLS, XLSX, DOCX, and PPTX documents.
+- Load files through one unified loader and preserve available metadata.
+- Split documents into overlapping chunks and index them in ChromaDB.
+- Combine ChromaDB semantic retrieval with MMR and BM25 lexical retrieval.
+- Apply CrossEncoder and keyword-based relevance ranking.
+- Fuse ranking signals with Reciprocal Rank Fusion (RRF).
 - Rewrite follow-up questions using conversation history when needed.
-- Generate answers constrained to retrieved document context.
-- Display source filenames and available page numbers.
-- Add files, delete files, rebuild the index, and manage uploaded documents from the UI.
-- Evaluate retrieval and answer quality with custom evaluation code and RAGAS support.
+- Generate document-grounded answers with an explicit abstention response.
+- Display grouped source filenames and available one-based page numbers.
+- Upload, delete, rebuild, and clear the local document index from the UI.
+- Run saved RAG tests and RAGAS evaluation scripts.
 
 ## Supported File Formats
 
@@ -26,69 +27,89 @@ A Streamlit chatbot that lets users upload documents and ask questions about the
 | DOCX | `Docx2txtLoader` | May be unavailable |
 | PPTX | `UnstructuredPowerPointLoader` | May be unavailable |
 
-Page numbers depend on the source loader. Source filenames are displayed when available, and documents without page metadata may show no page number.
+The loader is implemented in `loaders/file_loader.py`. A page number is not guaranteed for every format; for example, CSV records may have `page=None`.
 
 ## RAG Architecture
 
 ```mermaid
 flowchart TD
-    A[Upload document] --> B[Unified file loader]
-    B --> C[Split into chunks]
-    C --> D[Embeddings]
-    D --> E[(ChromaDB)]
-    Q[User question] --> R[Conversation-aware query rewriting]
-    R --> H[Hybrid retrieval]
-    H --> H1[Chroma semantic retrieval with MMR]
-    H --> H2[BM25 lexical retrieval]
-    H1 --> CAND[Candidate documents]
-    H2 --> CAND
-    CAND --> X[Cross-Encoder reranking]
-    X --> K[Keyword reranking]
-    K --> M[MMR candidates and diversity]
-    M --> F[Reciprocal Rank Fusion]
-    F --> U[Remove duplicate chunks]
-    U --> CTX[Final context]
-    CTX --> L[Document-grounded prompt]
-    L --> G[Groq LLM via llm.invoke]
-    G --> OUT[Answer and available sources/pages]
+    A[User uploads file] --> B[Save in uploads/]
+    B --> C[Unified file loader]
+    C --> D[Split documents into chunks]
+    D --> E[Generate embeddings]
+    E --> F[(ChromaDB vector store)]
+
+    Q[User question] --> G{Greeting?}
+    G -->|Yes| H[Greeting response]
+    G -->|No| I[rewrite_query]
+    I --> J[Hybrid retriever]
+    J --> J1[ChromaDB semantic retrieval with MMR]
+    J --> J2[BM25 lexical retrieval]
+    J1 --> K[Candidate documents]
+    J2 --> K
+    K --> L[CrossEncoder reranking]
+    K --> M[Keyword reranking]
+    K --> N[First MMR candidates]
+    L --> O[RRF fusion]
+    M --> O
+    N --> O
+    O --> P[Select final chunks]
+    P --> R[Construct labelled context]
+    R --> S[Document-only prompt]
+    S --> T[Groq llm.invoke]
+    T --> U[Answer]
+    P --> V[Extract and group sources]
+    U --> W[Answer with source display]
+    V --> W
 ```
 
-### Processing and Indexing
+## Document Processing and Indexing
 
-The unified loader in `loaders/file_loader.py` selects a format-specific LangChain loader. Documents are split by the project splitter into 500-character chunks with 100-character overlap. Available metadata, including source, page, file type, and generated chunk ID, is preserved on each chunk. Embeddings are stored in ChromaDB for semantic retrieval.
+1. A user uploads a supported file through the Streamlit sidebar.
+2. The file is saved in `uploads/` and passed to the unified loader.
+3. The loader selects the appropriate LangChain document loader and adds a `file_type` metadata value.
+4. `preprocess/splitter.py` uses a recursive splitter with 500-character chunks and 100-character overlap.
+5. Each chunk retains available metadata such as `source`, `page`, `page_label`, `file_type`, and a generated `chunk_id`.
+6. Hugging Face embeddings are generated and the chunks are stored in ChromaDB.
 
-### Question Flow
+The application can append newly uploaded files, delete a file and its vectors, rebuild the database from all files in `uploads/`, or clear the local ChromaDB directory.
 
-The question is rewritten into a standalone retrieval query when conversation history is needed. The query then passes through hybrid retrieval, ranking, fusion, duplicate removal, context construction, and answer generation. This separates search-oriented query preparation from the final response prompt.
+## Question and Query Flow
 
-## How Retrieval Works
+Non-greeting questions are passed to `ask_question()` in `rag/rag_chain.py`. With no chat history, `rewrite_query()` returns the trimmed original question. When history exists, the LLM rewrites a dependent follow-up into a standalone retrieval query when necessary. Clear standalone questions remain unchanged. The rewrite prompt must only rewrite the question and must not answer or invent information.
 
-The active retriever combines:
+## Hybrid Retrieval
 
-1. **Semantic retrieval:** ChromaDB uses embedding similarity with MMR. MMR balances relevance with diversity among the selected chunks.
-2. **BM25 retrieval:** BM25 searches the currently loaded and split documents using lexical term matching.
-3. **Candidate ranking:** A Cross-Encoder scores semantic relevance, while keyword reranking preserves exact terminology and matches.
-4. **Fusion:** RRF combines the Cross-Encoder, keyword, and MMR ranking signals. Chunks are identified and duplicates are removed before the final context is built.
+The active hybrid retriever combines two complementary search methods:
 
-Hybrid retrieval is useful because semantic search handles conceptual similarity, BM25 helps with exact keywords, Cross-Encoder reranking improves ordering, keyword reranking protects important terminology, MMR maintains variety, and RRF combines these complementary signals.
+- **Semantic retrieval:** ChromaDB searches embedded chunks using MMR with `k=50`, `fetch_k=100`, and `lambda_mult=0.70`.
+- **Lexical retrieval:** BM25 is built from the currently loaded and split documents, with `k=50`.
 
-## Question Rewriting
+The ensemble weights semantic retrieval at `0.45` and BM25 at `0.55`. Semantic retrieval handles conceptual similarity, while BM25 helps find exact words, names, identifiers, and terminology.
 
-The `rewrite_query()` function returns the original question unchanged when there is no chat history. With history, the LLM rewrites follow-up questions into standalone retrieval questions when necessary. Questions that are already clear and standalone should remain unchanged.
+## Ranking and Context Construction
 
-The rewrite prompt preserves the original meaning, uses history only when relevant, and instructs the LLM to return only a rewritten question. It must not answer the question or invent information.
+After hybrid retrieval, the application applies the following ranking stages:
+
+1. The CrossEncoder scores query-document relevance and selects candidates while preserving page diversity where page metadata exists.
+2. The keyword reranker scores the overlap between query terms and document terms.
+3. The first eight hybrid results are retained as MMR candidates.
+4. RRF combines the CrossEncoder, keyword, and MMR result lists using rank positions.
+5. The first twelve fused documents are formatted into the final context with source and page labels.
+
+The repository also contains a `remove_duplicate_documents()` helper, and the saved RAG test path removes duplicate chunk text when preparing evaluation contexts. The live `ask_question()` path uses RRF document IDs and does not call that helper separately.
 
 ## Answer Generation
 
-The active LLM provider is Groq, configured through `ChatGroq`. The final response is generated with `llm.invoke(messages)`, so the active answer path is not described as streaming.
+The active provider is Groq through `ChatGroq`. The model name is configured in `config.py`, and the API key is read from the `GROQ_API_KEY` environment variable. The final answer is generated with `llm.invoke(messages)`; the active application path is not streaming.
 
-The answer prompt instructs the model to use only the retrieved context, ignore outside knowledge, and avoid inventing or assuming information. When the context does not contain enough information, the exact fallback response is:
+The prompt instructs the model to use only the supplied context, avoid outside knowledge, and avoid inventing or assuming information. If the retrieved context is insufficient, the required response is exactly:
 
 > I don't know based on the provided documents.
 
 ## Source Attribution
 
-Retrieved chunks retain source metadata. The application extracts source filenames and page values from the final selected documents and presents them with the answer. Page values are converted from zero-based metadata to user-friendly one-based page numbers when page metadata exists. Formats such as CSV may have `page=None`, so a page number is not guaranteed for every file.
+The application extracts source filenames and page values from the final selected chunks. Page metadata is converted from zero-based values to user-friendly one-based page numbers when available. `group_sources()` groups pages by filename for display in expandable Streamlit source sections. Files without page metadata are shown without a page number.
 
 ## Tech Stack
 
@@ -96,32 +117,33 @@ Retrieved chunks retain source metadata. The application extracts source filenam
 | --- | --- |
 | Language and UI | Python, Streamlit |
 | RAG framework | LangChain |
-| Document loading | PyPDF, PyMuPDF, Unstructured, python-docx, openpyxl, python-pptx, xlrd |
+| Document loading | PyPDF, Unstructured, python-docx, openpyxl, python-pptx, xlrd |
 | Embeddings | Hugging Face embeddings, Sentence Transformers |
-| Retrieval | ChromaDB with MMR, BM25 |
-| Reranking | Sentence Transformers Cross-Encoder, keyword reranking, RRF |
+| Retrieval | ChromaDB, MMR, BM25 |
+| Reranking | Sentence Transformers CrossEncoder, keyword reranking, RRF |
 | LLM | Groq through `langchain-groq` |
-| Evaluation | RAGAS and custom evaluation code |
+| Evaluation | RAGAS and repository evaluation scripts |
 
 ## Project Structure
 
 ```text
 rag-chatbot/
+├── .env.example
+├── .gitignore
+├── .streamlit/
+│   └── config.toml
+├── README.md
 ├── app.py
 ├── config.py
 ├── index.py
-├── Modelfile
 ├── requirements.txt
 ├── test_ollama.py
 ├── test_ragas_ollama.py
 ├── embeddings/
 │   └── embedding_model.py
 ├── evaluation/
-│   ├── error_analysis.py
 │   ├── evaluation_results.json
-│   ├── evaluator.py
 │   ├── ragas_evaluation.py
-│   ├── retrieval_debug.py
 │   ├── run_evaluation.py
 │   ├── run_rag_test.py
 │   └── test_questions.py
@@ -137,8 +159,7 @@ rag-chatbot/
 ├── retriever/
 │   ├── hybrid_retriever.py
 │   ├── keyword_reranker.py
-│   ├── reranker.py
-│   └── retriever.py
+│   └── reranker.py
 ├── utils/
 │   ├── __init__.py
 │   ├── file_manager.py
@@ -149,11 +170,11 @@ rag-chatbot/
     └── delete_documents.py
 ```
 
-`uploads/` and `chroma_db/` are runtime directories used for uploaded documents and generated vector data. They are present locally but should remain untracked.
+The local `uploads/` and `chroma_db/` directories are runtime data locations and should remain untracked.
 
 ## Installation
 
-Run these commands in Windows PowerShell:
+Run the following commands in Windows PowerShell:
 
 ```powershell
 git clone https://github.com/Jayasurya-C-0609/Rag_Chatbot.git
@@ -165,58 +186,67 @@ New-Item -Path .env -ItemType File -Force
 notepad .env
 ```
 
-Add the required Groq credential to `.env` using a placeholder during setup:
+Add the required credential to `.env`:
 
 ```dotenv
 GROQ_API_KEY=your_groq_api_key
 ```
 
-Then start the application:
+Install the spaCy English language model:
+
+```powershell
+python -m spacy download en_core_web_sm
+
+Start the application:
 
 ```powershell
 streamlit run app.py
 ```
 
-The first run may download embedding and reranking models from Hugging Face.
+The first run may download embedding and CrossEncoder models from Hugging Face.
 
 ## Environment Variables
 
 | Variable | Purpose | Required |
 | --- | --- | --- |
-| `GROQ_API_KEY` | Authenticates the active Groq LLM | Yes |
+| `GROQ_API_KEY` | Authenticates the active Groq LLM and the Groq smoke test | Yes for the application |
 
 ## Usage
 
 1. Start the Streamlit application.
-2. Upload one or more supported documents from the sidebar.
-3. Wait while each document is loaded, split, embedded, and indexed.
-4. Ask a question about the uploaded content.
-5. Review the document-grounded answer.
-6. Review the source filenames and page numbers when available.
+2. Upload one or more supported files.
+3. Wait while the files are loaded, split, embedded, and indexed.
+4. Ask questions about the uploaded documents.
+5. Review the generated answer.
+6. Expand the source sections to review filenames and available pages.
+7. Use the sidebar controls to delete files, rebuild the index, or clear ChromaDB when needed.
 
 ## Evaluation
 
-The repository includes a test question set, saved evaluation results, custom evaluation functions, and a RAGAS evaluation script. Available evaluation code covers retrieval behavior and answer quality, including context precision, context recall, faithfulness, answer relevance, answer correctness, and abstention behavior. Evaluation support is intended for development and comparison; this README does not claim benchmark scores.
+The repository includes `evaluation/test_questions.py`, saved results in `evaluation/evaluation_results.json`, a RAG test runner, custom evaluation code, and a RAGAS evaluation script. RAGAS evaluates context precision, context recall, faithfulness, answer relevance, and answer correctness, while the scripts also assess abstention behavior.
 
-## .gitignore / Security
+The RAGAS path uses an Ollama-compatible local endpoint for its evaluation LLM and writes results to `evaluation/ragas_results.json`. Evaluation commands make model calls and require the relevant local or remote services. No benchmark scores are claimed here.
 
-Do not commit `.env` files, API keys, uploaded documents, ChromaDB files, model caches, virtual environments, `__pycache__` directories, or other secrets. The repository `.gitignore` contains rules for these local and generated artifacts.
+## Security
+
+Never commit `.env`, API keys, tokens, passwords, uploaded documents, ChromaDB data, model caches, virtual environments, `__pycache__/`, or generated logs. `.env` is ignored by Git; use `.env.example` only as a placeholder template. No credentials should be hardcoded in the repository.
 
 ## Limitations
 
 - Retrieval quality depends on document extraction, chunking, embeddings, and ranking settings.
-- Answers depend on the context retrieved for the question.
-- Some file formats may not provide page metadata.
-- External LLM/API access is required for the active Groq provider.
+- Answers depend on the context retrieved for each question.
+- Some supported formats may not provide page metadata.
+- The active Groq provider requires external API access and a valid API key.
+- RAGAS evaluation requires its configured local evaluation service and model.
 
 ## Future Improvements
 
-- Tune hybrid retrieval, reranking, and chunking settings.
-- Add more precise document and metadata filtering.
-- Expand evaluation and regression testing.
+- Tune hybrid retrieval, reranking, and RRF settings.
+- Improve document and metadata filtering.
+- Expand evaluation coverage and regression testing.
 - Improve the Streamlit UI and interaction flow.
 - Add deployment support and clearer provider configuration.
-- Extend document processing for complex layouts and tables.
+- Extend processing for complex document layouts and tables.
 
 ## Author
 
