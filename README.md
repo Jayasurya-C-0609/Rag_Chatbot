@@ -10,10 +10,6 @@ A Streamlit chatbot for uploading documents and asking questions about their con
 
 ![RAG Chatbot](screenshots/chatbot.png)
 
-### Document Management
-
-![Document Management](screenshots/document-upload.png)
-
 ### Source Attribution
 
 ![Source Attribution](screenshots/sources.png)
