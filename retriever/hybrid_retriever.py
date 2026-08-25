@@ -32,6 +32,9 @@ def load_hybrid_retriever(embedding_model):
     documents = load_files("uploads")
 
     chunks = split_documents(documents)
+    
+    if not chunks:
+        return semantic_retriever
 
     print(
         f"BM25 chunks: {len(chunks)}"

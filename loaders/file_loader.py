@@ -60,6 +60,8 @@ def load_files(folder):
 
     for filename in os.listdir(folder):
 
+        if filename.startswith("."):
+            continue
         path = os.path.join(
             folder,
             filename
