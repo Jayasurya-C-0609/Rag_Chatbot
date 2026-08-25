@@ -1,6 +1,22 @@
+
 # 📚 RAG Chatbot
 
 A Streamlit chatbot for uploading documents and asking questions about their contents. The application retrieves relevant chunks, ranks them, and generates an answer from the retrieved context through Groq.
+
+
+## 📸 Screenshots
+
+### Chatbot Interface
+
+![RAG Chatbot](screenshots/chatbot.png)
+
+### Document Management
+
+![Document Management](screenshots/document-upload.png)
+
+### Source Attribution
+
+![Source Attribution](screenshots/sources.png)
 
 ## Features
 
