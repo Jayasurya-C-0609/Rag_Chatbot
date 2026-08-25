@@ -319,10 +319,10 @@ def ask_question(
     )
 
     # -------------------------------------------------
-    # Final top 12
+    # Final top 10
     # -------------------------------------------------
 
-    selected = fused_results[:12]
+    selected = fused_results[:10]
 
     reranked_docs = [
         doc
@@ -446,7 +446,22 @@ def ask_question(
     # -------------------------------------------------
     # Sources
     # -------------------------------------------------
+    print("\n===== SOURCE ORDER =====")
 
+    for i, doc in enumerate(reranked_docs):
+
+        print(
+            i,
+            os.path.basename(
+                doc.metadata.get(
+                    "source",
+                    "Unknown"
+                )
+            ),
+            doc.metadata.get("page")
+        )
+
+    print("========================\n")
     yield {
         "type": "sources",
         "content": extract_sources(

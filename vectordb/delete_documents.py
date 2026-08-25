@@ -1,22 +1,27 @@
+import os
+
 from langchain_chroma import Chroma
 
 from config import CHROMA_DB_DIR
 
 
-def delete_document(pdf_name, embedding_model):
-    """
-    Delete all chunks belonging to a PDF from ChromaDB.
-    """
+def delete_document(
+    filename,
+    embedding_model
+):
 
     vector_store = Chroma(
         persist_directory=CHROMA_DB_DIR,
         embedding_function=embedding_model
     )
 
-    # Get all documents and metadata
     data = vector_store.get(
         include=["metadatas"]
     )
+
+    target = os.path.basename(
+        filename
+    ).lower()
 
     ids_to_delete = []
 
@@ -25,10 +30,24 @@ def delete_document(pdf_name, embedding_model):
         data["metadatas"]
     ):
 
-        source = metadata.get("source", "")
+        if not metadata:
+            continue
 
-        if source.endswith(pdf_name):
-            ids_to_delete.append(doc_id)
+        source = str(
+            metadata.get(
+                "source",
+                ""
+            )
+        )
+
+        source_name = os.path.basename(
+            source
+        ).lower()
+
+        if source_name == target:
+            ids_to_delete.append(
+                doc_id
+            )
 
     if ids_to_delete:
 
@@ -36,6 +55,9 @@ def delete_document(pdf_name, embedding_model):
             ids=ids_to_delete
         )
 
-        return len(ids_to_delete)
+    print(
+        f"Deleted {len(ids_to_delete)} chunks "
+        f"for {filename}"
+    )
 
-    return 0
+    return len(ids_to_delete)

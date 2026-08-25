@@ -2,6 +2,22 @@ import os
 import shutil
 import streamlit as st
 
+
+# -------------------------------------------------------
+# Page Configuration
+# -------------------------------------------------------
+
+st.set_page_config(
+    page_title="RAG Chatbot",
+    page_icon="📚",
+    layout="wide"
+)
+
+
+# -------------------------------------------------------
+# Imports
+# -------------------------------------------------------
+
 from embeddings.embedding_model import load_embedding_model
 from retriever.hybrid_retriever import load_hybrid_retriever
 from llm.llm import load_llm
@@ -24,54 +40,330 @@ from utils.source_utils import group_sources
 from retriever.reranker import CrossEncoderReranker
 
 
-# -------------------------------------------------------
-# Page Configuration
-# -------------------------------------------------------
+# =======================================================
+# CUSTOM CSS
+# =======================================================
+st.markdown("""
+<style>
 
-st.set_page_config(
-    page_title="RAG Chatbot",
-    page_icon="📚",
-    layout="wide"
-)
+/* ================= APP ================= */
+
+.stApp {
+    background: #F8FAFC;
+}
 
 
-# -------------------------------------------------------
-# Session State
-# -------------------------------------------------------
+/* ================= MAIN HEADER ================= */
+
+.main-header {
+    font-size: 40px !important;
+    font-weight: 700 !important;
+    color: #0F172A !important;
+}
+
+.subtitle {
+    font-size: 16px !important;
+    color: #64748B !important;
+}
+
+
+/* ================= SIDEBAR ================= */
+
+section[data-testid="stSidebar"] {
+    background: #0F172A !important;
+}
+
+
+/* Document Management */
+
+.sidebar-title {
+    color: #FFFFFF !important;
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+    margin-bottom: 18px !important;
+}
+
+
+/* Uploaded Documents */
+
+.uploaded-title {
+    color: #FFFFFF !important;
+    font-size: 19px !important;
+    font-weight: 600 !important;
+    margin-bottom: 15px !important;
+}
+
+.document-name {
+    color: #FFFFFF !important;
+    font-size: 16px !important;
+    font-weight: 500 !important;
+}
+
+
+/* Database */
+
+.database-title {
+    color: #FFFFFF !important;
+    font-size: 19px !important;
+    font-weight: 600 !important;
+}
+
+.document-count {
+    color: #FFFFFF !important;
+    font-size: 17px !important;
+}
+
+
+/* ================= FILE UPLOADER ================= */
+
+section[data-testid="stSidebar"]
+[data-testid="stFileUploader"] {
+    background: #FFFFFF !important;
+    border: 1px dashed #94A3B8 !important;
+    border-radius: 12px !important;
+    padding: 10px !important;
+}
+
+
+/* Upload label */
+
+section[data-testid="stFileUploader"] label {
+    color: #334155 !important;
+    opacity: 1 !important;
+}
+
+
+/* Upload button */
+
+section[data-testid="stFileUploader"] button {
+    background: #FFFFFF !important;
+    color: #0F172A !important;
+    border: 1px solid #94A3B8 !important;
+    border-radius: 8px !important;
+    opacity: 1 !important;
+    transition: 0.2s !important;
+}
+
+section[data-testid="stFileUploader"] button span,
+section[data-testid="stFileUploader"] button p,
+section[data-testid="stFileUploader"] button svg {
+    color: #0F172A !important;
+    stroke: #0F172A !important;
+    fill: none !important;
+    opacity: 1 !important;
+}
+
+
+/* Upload hover */
+
+section[data-testid="stFileUploader"] button:hover {
+    background: #EFF6FF !important;
+    border-color: #2563EB !important;
+}
+
+section[data-testid="stFileUploader"] button:hover span,
+section[data-testid="stFileUploader"] button:hover p,
+section[data-testid="stFileUploader"] button:hover svg {
+    color: #2563EB !important;
+    stroke: #2563EB !important;
+}
+
+
+/* Supported formats */
+
+section[data-testid="stFileUploader"] small {
+    color: #475569 !important;
+    opacity: 1 !important;
+}
+
+
+/* ================= SIDEBAR BUTTONS ================= */
+
+section[data-testid="stSidebar"] .stButton > button {
+    background: #FFFFFF !important;
+    color: #0F172A !important;
+    border: 1px solid #CBD5E1 !important;
+    border-radius: 8px !important;
+    opacity: 1 !important;
+    transition: 0.2s !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button span,
+section[data-testid="stSidebar"] .stButton > button p,
+section[data-testid="stSidebar"] .stButton > button svg {
+    color: #0F172A !important;
+    stroke: #0F172A !important;
+    opacity: 1 !important;
+}
+
+
+/* Sidebar button hover */
+
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background: #EFF6FF !important;
+    border-color: #2563EB !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button:hover span,
+section[data-testid="stSidebar"] .stButton > button:hover p,
+section[data-testid="stSidebar"] .stButton > button:hover svg {
+    color: #2563EB !important;
+    stroke: #2563EB !important;
+}
+
+
+/* ================= COLLAPSE BUTTON ================= */
+
+/* Open sidebar: << */
+
+[data-testid="stSidebarCollapseButton"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: #FFFFFF !important;
+    border: 1px solid #CBD5E1 !important;
+    border-radius: 10px !important;
+}
+
+[data-testid="stSidebarCollapseButton"] svg {
+    color: #0F172A !important;
+    stroke: #0F172A !important;
+    fill: none !important;
+    opacity: 1 !important;
+}
+
+[data-testid="stSidebarCollapseButton"]:hover {
+    background: #EFF6FF !important;
+    border-color: #2563EB !important;
+}
+
+[data-testid="stSidebarCollapseButton"]:hover svg {
+    color: #2563EB !important;
+    stroke: #2563EB !important;
+}
+
+
+/* Collapsed sidebar: >> */
+
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+[data-testid="collapsedControl"] button {
+    background: #FFFFFF !important;
+    border: 1px solid #CBD5E1 !important;
+    border-radius: 10px !important;
+}
+
+[data-testid="collapsedControl"] svg {
+    color: #0F172A !important;
+    stroke: #0F172A !important;
+    fill: none !important;
+}
+
+[data-testid="collapsedControl"] button:hover {
+    background: #EFF6FF !important;
+    border-color: #2563EB !important;
+}
+
+
+/* ================= CHAT ================= */
+
+[data-testid="stChatMessage"] {
+    border-radius: 12px !important;
+    padding: 10px !important;
+    margin-bottom: 10px !important;
+}
+
+[data-testid="stChatMessage"]:has(
+    [data-testid="chatAvatarIcon-user"]
+) {
+    background: #DBEAFE !important;
+}
+
+[data-testid="stChatMessage"]:has(
+    [data-testid="chatAvatarIcon-assistant"]
+) {
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+}
+
+
+/* ================= SOURCES ================= */
+
+.source-card {
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 10px !important;
+    padding: 12px 15px !important;
+}
+
+.source-title {
+    color: #0F172A !important;
+    font-weight: 600 !important;
+}
+
+.source-page {
+    color: #64748B !important;
+    font-size: 13px !important;
+}
+
+
+/* ================= CHAT INPUT ================= */
+
+.stChatInput {
+    border-radius: 12px !important;
+}
+
+
+/* ================= DIVIDER ================= */
+
+hr {
+    border-color: #E2E8F0 !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+# =======================================================
+# SESSION STATE
+# =======================================================
 
 if "last_uploaded" not in st.session_state:
     st.session_state.last_uploaded = None
 
 if "processed_upload" not in st.session_state:
-    st.session_state.processed_upload = None
+    st.session_state.processed_upload = []
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 
-# -------------------------------------------------------
-# Page Title
-# -------------------------------------------------------
+# =======================================================
+# PAGE TITLE
+# =======================================================
 
-st.title("📚 RAG Chatbot")
+st.markdown(
+    '<div class="main-header">📚 RAG Chatbot</div>',
+    unsafe_allow_html=True
+)
 
-st.write(
-    "Ask questions from your uploaded documents."
+st.markdown(
+    '<div class="subtitle">Ask questions from your uploaded documents.</div>',
+    unsafe_allow_html=True
 )
 
 
-# -------------------------------------------------------
-# Load Models
-# -------------------------------------------------------
+# =======================================================
+# LOAD EXPENSIVE MODELS
+# =======================================================
 
 @st.cache_resource
 def load_models():
 
     embedding_model = load_embedding_model()
-
-    retriever = load_hybrid_retriever(
-        embedding_model
-    )
 
     llm = load_llm()
 
@@ -79,25 +371,56 @@ def load_models():
 
     return (
         embedding_model,
-        retriever,
         llm,
         reranker
     )
 
 
+# =======================================================
+# LOAD RETRIEVER SEPARATELY
+# =======================================================
+
+@st.cache_resource
+def load_retriever(embedding_model):
+
+    return load_hybrid_retriever(
+        embedding_model
+    )
+
+
+# =======================================================
+# LOAD MODELS
+# =======================================================
+
 (
     embedding_model,
-    retriever,
     llm,
     reranker
 ) = load_models()
 
-# -------------------------------------------------------
-# Sidebar
-# -------------------------------------------------------
 
-st.sidebar.title("📂 Document Management")
+# =======================================================
+# LOAD RETRIEVER
+# =======================================================
 
+retriever = load_retriever(
+    embedding_model
+)
+
+
+# =======================================================
+# SIDEBAR
+# =======================================================
+
+st.sidebar.markdown(
+    '<div class="sidebar-title">📁 Document Management</div>',
+    unsafe_allow_html=True
+)
+
+
+# =======================================================
+# FILE UPLOAD
+# =======================================================
 
 uploaded_files = st.sidebar.file_uploader(
     "Upload documents",
@@ -114,18 +437,12 @@ uploaded_files = st.sidebar.file_uploader(
 )
 
 
-# -------------------------------------------------------
-# Reset Upload State
-# -------------------------------------------------------
+# =======================================================
+# UPLOAD DOCUMENTS
+# =======================================================
 
-if not uploaded_files:
+new_file_uploaded = False
 
-    st.session_state.processed_upload = []
-
-
-# -------------------------------------------------------
-# Upload Documents
-# -------------------------------------------------------
 
 if uploaded_files:
 
@@ -133,9 +450,9 @@ if uploaded_files:
 
         filename = uploaded_file.name
 
-        # ---------------------------------------------
-        # Skip already processed file
-        # ---------------------------------------------
+        # -----------------------------------------------
+        # Already processed
+        # -----------------------------------------------
 
         if filename in st.session_state.processed_upload:
             continue
@@ -147,9 +464,9 @@ if uploaded_files:
         )
 
 
-        # ---------------------------------------------
-        # Duplicate check
-        # ---------------------------------------------
+        # -----------------------------------------------
+        # Duplicate file
+        # -----------------------------------------------
 
         if os.path.exists(save_path):
 
@@ -164,9 +481,9 @@ if uploaded_files:
             continue
 
 
-        # ---------------------------------------------
+        # -----------------------------------------------
         # Save file
-        # ---------------------------------------------
+        # -----------------------------------------------
 
         with open(
             save_path,
@@ -178,14 +495,9 @@ if uploaded_files:
             )
 
 
-        st.sidebar.success(
-            f"✅ {filename} uploaded successfully!"
-        )
-
-
-        # ---------------------------------------------
+        # -----------------------------------------------
         # Index file
-        # ---------------------------------------------
+        # -----------------------------------------------
 
         with st.spinner(
             f"Indexing {filename}..."
@@ -196,42 +508,46 @@ if uploaded_files:
             )
 
 
-        # ---------------------------------------------
-        # Mark as processed
-        # ---------------------------------------------
+        # -----------------------------------------------
+        # Mark processed
+        # -----------------------------------------------
 
         st.session_state.processed_upload.append(
             filename
         )
 
+        new_file_uploaded = True
 
-    # ---------------------------------------------
-    # Reload models once after all files
-    # ---------------------------------------------
 
-    st.cache_resource.clear()
+# =======================================================
+# UPDATE RETRIEVER ONLY
+# =======================================================
 
-    (
-        embedding_model,
-        retriever,
-        llm,
-        reranker
-    ) = load_models()
+if new_file_uploaded:
 
+    # Clear ONLY the retriever cache
+    load_retriever.clear()
+
+    # Rebuild retriever using the existing
+    # embedding model
+    retriever = load_retriever(
+        embedding_model
+    )
 
     st.sidebar.success(
         "✅ Vector Database Updated!"
     )
 
 
-# -------------------------------------------------------
-# Uploaded Documents
-# -------------------------------------------------------
+# =======================================================
+# UPLOADED DOCUMENTS
+# =======================================================
 
 st.sidebar.divider()
 
-st.sidebar.subheader(
-    "📄 Uploaded Documents"
+st.sidebar.markdown(
+    '<div class="uploaded-title">📄 Uploaded Documents</div>',
+    unsafe_allow_html=True
 )
 
 
@@ -249,22 +565,42 @@ else:
     for pdf in pdfs:
 
         col1, col2 = st.sidebar.columns(
-            [4, 1]
+            [5, 1]
         )
 
 
+        # -----------------------------------------------
+        # Document name
+        # -----------------------------------------------
+
         with col1:
 
-            st.write(
-                f"📄 {pdf}"
+            st.markdown(
+                f'<div class="document-name">📄 {pdf}</div>',
+                unsafe_allow_html=True
             )
 
 
+        # -----------------------------------------------
+        # Delete button
+        # -----------------------------------------------
+
         with col2:
 
-            if st.button(
+            delete_clicked = st.button(
                 "❌",
                 key=f"delete_{pdf}"
+            )
+
+
+        # -----------------------------------------------
+        # Delete outside narrow column
+        # -----------------------------------------------
+
+        if delete_clicked:
+
+            with st.spinner(
+                f"Deleting {pdf}..."
             ):
 
                 deleted_chunks = delete_file(
@@ -273,48 +609,44 @@ else:
                 )
 
 
-                # -------------------------------------
-                # Reload retriever
-                # -------------------------------------
-
-                st.cache_resource.clear()
-
-                (
-                    embedding_model,
-                    retriever,
-                    llm,
-                    reranker
-                ) = load_models()
+                # Clear ONLY retriever
+                load_retriever.clear()
 
 
-                st.success(
-                    f"✅ {pdf} deleted "
-                    f"({deleted_chunks} chunks removed)"
+                # Rebuild retriever
+                retriever = load_retriever(
+                    embedding_model
                 )
 
 
-                st.rerun()
+            st.sidebar.success(
+                f"✅ {pdf} deleted "
+                f"({deleted_chunks} chunks removed)"
+            )
+
+            st.rerun()
 
 
-# -------------------------------------------------------
-# Database Status
-# -------------------------------------------------------
+# =======================================================
+# DATABASE STATUS
+# =======================================================
 
 st.sidebar.divider()
 
-st.sidebar.subheader(
-    "📊 Database Status"
+st.sidebar.markdown(
+    '<div class="database-title">📊 Database Status</div>',
+    unsafe_allow_html=True
+)
+
+st.sidebar.markdown(
+    f'<div class="document-count">Documents: {len(pdfs)}</div>',
+    unsafe_allow_html=True
 )
 
 
-st.sidebar.write(
-    f"Documents : {len(pdfs)}"
-)
-
-
-# -------------------------------------------------------
-# Rebuild Database
-# -------------------------------------------------------
+# =======================================================
+# REBUILD DATABASE
+# =======================================================
 
 if st.sidebar.button(
     "🔄 Rebuild Database"
@@ -324,19 +656,19 @@ if st.sidebar.button(
         "Rebuilding database..."
     ):
 
-        st.cache_resource.clear()
-
         build_vector_database(
             "uploads"
         )
 
 
-        (
-            embedding_model,
-            retriever,
-            llm,
-            reranker
-        ) = load_models()
+        # Clear ONLY retriever
+        load_retriever.clear()
+
+
+        # Rebuild retriever
+        retriever = load_retriever(
+            embedding_model
+        )
 
 
     st.sidebar.success(
@@ -344,9 +676,9 @@ if st.sidebar.button(
     )
 
 
-# -------------------------------------------------------
-# Clear Database
-# -------------------------------------------------------
+# =======================================================
+# CLEAR DATABASE
+# =======================================================
 
 if st.sidebar.button(
     "🗑 Clear Database"
@@ -361,16 +693,23 @@ if st.sidebar.button(
         )
 
 
-    st.cache_resource.clear()
+    # Clear ONLY retriever
+    load_retriever.clear()
+
+
+    # Reset retriever
+    retriever = load_retriever(
+        embedding_model
+    )
 
 
     st.sidebar.success(
-        "✅ Database cleared!"
+        "✅ Database cleared!" 
     )
 
 
 # =======================================================
-# Display Previous Chat Messages
+# DISPLAY PREVIOUS CHAT MESSAGES
 # =======================================================
 
 for message in st.session_state.messages:
@@ -384,48 +723,47 @@ for message in st.session_state.messages:
         )
 
 
-        # ---------------------------------------------
-        # Display sources
-        # ---------------------------------------------
+        # -----------------------------------------------
+        # Sources
+        # -----------------------------------------------
 
         if (
             message["role"] == "assistant"
-            and message.get("sources")
-        ):
+            and message.get("sources")):
 
             grouped_sources = group_sources(
                 message["sources"]
             )
 
-
             if grouped_sources:
 
-                st.markdown(
-                    "### 📚 Sources"
-                )
+                st.markdown("### 📚 Sources")
 
+                for file, pages in grouped_sources.items():
 
-                for file, pages in (
-                    grouped_sources.items()
-                ):
-
-                    st.markdown(
-                        f"📄 **{file}**"
-                    )
-
-
-                    for page in sorted(
-                        pages
+                    with st.expander(
+                        f"📄 {file}"
                     ):
 
-                        st.markdown(
-                            f"&nbsp;&nbsp;&nbsp;• "
-                            f"Page {page}"
-                        )
+                        if pages:
+
+                            st.markdown(
+                                "**Pages:** "
+                                + ", ".join(
+                                    str(page)
+                                    for page in sorted(pages)
+                                )
+                            )
+
+                        else:
+
+                            st.markdown(
+                                "*Page information unavailable.*"
+                            )
 
 
 # =======================================================
-# Chat Input
+# CHAT INPUT
 # =======================================================
 
 question = st.chat_input(
@@ -434,14 +772,14 @@ question = st.chat_input(
 
 
 # =======================================================
-# Ask Question
+# ASK QUESTION
 # =======================================================
 
 if question:
 
-    # ---------------------------------------------------
+    # -----------------------------------------------
     # Save user message
-    # ---------------------------------------------------
+    # -----------------------------------------------
 
     st.session_state.messages.append(
         {
@@ -451,9 +789,9 @@ if question:
     )
 
 
-    # ---------------------------------------------------
+    # -----------------------------------------------
     # Display user message
-    # ---------------------------------------------------
+    # -----------------------------------------------
 
     with st.chat_message(
         "user"
@@ -464,9 +802,9 @@ if question:
         )
 
 
-    # ---------------------------------------------------
-    # Greeting
-    # ---------------------------------------------------
+    # ===================================================
+    # GREETING
+    # ===================================================
 
     if is_greeting(
         question
@@ -488,9 +826,9 @@ if question:
             )
 
 
-    # ---------------------------------------------------
-    # RAG Question
-    # ---------------------------------------------------
+    # ===================================================
+    # RAG QUESTION
+    # ===================================================
 
     else:
 
@@ -498,10 +836,6 @@ if question:
 
         sources = []
 
-
-        # ---------------------------------------------
-        # Run RAG ONLY ONCE
-        # ---------------------------------------------
 
         with st.spinner(
             "Thinking..."
@@ -525,9 +859,9 @@ if question:
                     sources = result["content"]
 
 
-        # ---------------------------------------------
-        # Display complete assistant response ONCE
-        # ---------------------------------------------
+        # -----------------------------------------------
+        # Display assistant response
+        # -----------------------------------------------
 
         with st.chat_message(
             "assistant"
@@ -538,9 +872,9 @@ if question:
             )
 
 
-            # -----------------------------------------
-            # Display sources ONCE
-            # -----------------------------------------
+            # -----------------------------------------------
+            # Sources
+            # -----------------------------------------------
 
             if sources:
 
@@ -548,36 +882,38 @@ if question:
                     sources
                 )
 
-
                 if grouped_sources:
 
                     st.markdown(
                         "### 📚 Sources"
                     )
 
+                    for file, pages in grouped_sources.items():
 
-                    for file, pages in (
-                        grouped_sources.items()
-                    ):
-
-                        st.markdown(
-                            f"📄 **{file}**"
-                        )
-
-
-                        for page in sorted(
-                            pages
+                        with st.expander(
+                            f"📄 {file}",
+                            expanded=False
                         ):
 
-                            st.markdown(
-                                f"&nbsp;&nbsp;&nbsp;• "
-                                f"Page {page}"
-                            )
+                            if pages:
 
+                                st.markdown(
+                                    "**Pages:** "
+                                    + ", ".join(
+                                        str(page)
+                                        for page in sorted(pages)
+                                    )
+                                )
 
-    # ---------------------------------------------------
-    # Save assistant message
-    # ---------------------------------------------------
+                            else:
+
+                                st.markdown(
+                                    "*Page information unavailable.*"
+                                )
+
+    # ===================================================
+    # SAVE ASSISTANT MESSAGE
+    # ===================================================
 
     st.session_state.messages.append(
         {

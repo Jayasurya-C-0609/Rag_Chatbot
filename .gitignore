@@ -1,115 +1,36 @@
-# ==============================
 # Python
-# ==============================
-
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 
-# ==============================
 # Virtual environments
-# ==============================
-
 venv/
 .venv/
 env/
-ENV/
 gpu/
 
-# Conda environments
-.conda/
-
-# ==============================
-# Environment variables / Secrets
-# ==============================
-
+# Secrets
 .env
-.env.*
-!.env.example
+.streamlit/secrets.toml
 
-# ==============================
 # Uploaded documents
-# ==============================
-
 uploads/*
 !uploads/.gitkeep
 
-# ==============================
-# ChromaDB / Vector Database
-# ==============================
-
+# ChromaDB
 chroma_db/
-chroma/
-*.sqlite3
-*.db
 
-# ==============================
-# Model / ML cache
-# ==============================
-
+# Model / Hugging Face caches
 .cache/
-.cache_huggingface/
 huggingface/
 models/
 
-# Hugging Face cache
-.huggingface/
-
-# ==============================
-# Streamlit
-# ==============================
-
-.streamlit/secrets.toml
-
-# ==============================
-# Jupyter
-# ==============================
-
-.ipynb_checkpoints/
-
-# ==============================
 # IDE
-# ==============================
-
 .vscode/
 .idea/
 
-# ==============================
 # OS
-# ==============================
-
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# ==============================
 # Logs
-# ==============================
-
 *.log
-logs/
-
-# ==============================
-# Temporary files
-# ==============================
-
-*.tmp
-*.temp
-*.bak
-
-# ==============================
-# Build / Distribution
-# ==============================
-
-build/
-dist/
-*.egg-info/
-
-# ==============================
-# Coverage
-# ==============================
-
-.coverage
-htmlcov/
-.pytest_cache/

@@ -1,3 +1,4 @@
+# LangChain
 langchain
 langchain-core
 langchain-community
@@ -5,22 +6,25 @@ langchain-huggingface
 langchain-text-splitters
 langchain-chroma
 langchain-groq
+langchain-ollama
 
+# Retrieval / Reranking
 sentence-transformers
+rank-bm25
+
+# LLM / ML
 transformers
 torch
 torchvision
-chromadb
-rank-bm25
+numpy
+scikit-learn
 
+# Vector Database
+chromadb
+
+# Document Loaders
 pypdf
 pymupdf
-
-streamlit
-python-dotenv
-tiktoken
-
-# Multiple document formats
 unstructured
 python-docx
 openpyxl
@@ -28,15 +32,19 @@ python-pptx
 xlrd
 spacy
 
-# RAG evaluation
+# Streamlit
+streamlit
+
+# Environment
+python-dotenv
+
+# Utilities
+tiktoken
+pandas
+
+# RAG Evaluation
 ragas
 instructor
 
 # Ollama
-langchain-ollama
 ollama
-
-# Numerical / ML dependencies
-numpy
-pandas
-scikit-learn

@@ -7,72 +7,142 @@ class CrossEncoderReranker:
         self,
         model_name="cross-encoder/ms-marco-MiniLM-L-6-v2"
     ):
-        self.model = CrossEncoder(model_name)
+
+        self.model = CrossEncoder(
+            model_name
+        )
+
 
     def rerank(
         self,
         query,
         documents,
-        top_k=4,
-        score_threshold=-1.0
+        top_k=6,
+        score_threshold=0.0
     ):
 
         if not documents:
             return []
 
+
+        # -------------------------------------------
+        # Create query-document pairs
+        # -------------------------------------------
+
         pairs = [
-            (query, doc.page_content)
+            (
+                query,
+                doc.page_content
+            )
             for doc in documents
         ]
 
-        scores = self.model.predict(pairs)
+
+        # -------------------------------------------
+        # Cross Encoder scores
+        # -------------------------------------------
+
+        scores = self.model.predict(
+            pairs
+        )
+
 
         ranked = sorted(
-            zip(documents, scores),
+            zip(
+                documents,
+                scores
+            ),
             key=lambda x: float(x[1]),
             reverse=True
         )
+        print("\n===== RERANK SCORES =====")
 
-        # -------------------------------------------------
+        for i, (doc, score) in enumerate(ranked[:15]):
+
+            print(
+                i + 1,
+                round(float(score), 4),
+                doc.metadata.get("source"),
+                doc.metadata.get("page")
+            )
+
+        print("=========================\n")
+
+
+        # -------------------------------------------
         # Remove low scoring documents
-        # -------------------------------------------------
+        # -------------------------------------------
 
         ranked = [
-            (doc, float(score))
+            (
+                doc,
+                float(score)
+            )
             for doc, score in ranked
+
             if float(score) >= score_threshold
         ]
 
-        # -------------------------------------------------
+
+        # -------------------------------------------
+        # Select documents
         # Preserve page diversity
-        # -------------------------------------------------
+        # -------------------------------------------
 
         selected = []
+
         seen_pages = set()
+
 
         for doc, score in ranked:
 
-            page = doc.metadata.get("page")
+            source = doc.metadata.get(
+                "source",
+                ""
+            )
+
+            page = doc.metadata.get(
+                "page"
+            )
+
+
+            # Page must be unique per file
+            page_key = (
+                source,
+                page
+            )
+
 
             if page is None:
-                selected.append(
-                    (doc, score)
-                )
-
-            elif page not in seen_pages:
 
                 selected.append(
-                    (doc, score)
+                    (
+                        doc,
+                        score
+                    )
                 )
 
-                seen_pages.add(page)
+            elif page_key not in seen_pages:
+
+                selected.append(
+                    (
+                        doc,
+                        score
+                    )
+                )
+
+                seen_pages.add(
+                    page_key
+                )
+
 
             if len(selected) >= top_k:
                 break
 
-        # -------------------------------------------------
-        # Fill remaining slots
-        # -------------------------------------------------
+
+        # -------------------------------------------
+        # Fill remaining slots if necessary
+        # -------------------------------------------
 
         if len(selected) < top_k:
 
@@ -81,39 +151,54 @@ class CrossEncoderReranker:
                 for doc, _ in selected
             }
 
+
             for doc, score in ranked:
 
                 if id(doc) in selected_ids:
                     continue
 
+
                 selected.append(
-                    (doc, score)
+                    (
+                        doc,
+                        score
+                    )
                 )
 
                 if len(selected) >= top_k:
                     break
 
+
         return selected
 
 
 def remove_duplicate_documents(
-    ranked_results
-):
+    ranked_results):
 
     seen = set()
+
     filtered = []
+
 
     for doc, score in ranked_results:
 
-        content = doc.page_content.strip()
+        content = (
+            doc.page_content
+            .strip()
+        )
+
 
         if content in seen:
             continue
 
+
         seen.add(content)
 
         filtered.append(
-            (doc, score)
+            (
+                doc,
+                score
+            )
         )
 
     return filtered
